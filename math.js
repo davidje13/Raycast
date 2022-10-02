@@ -1,0 +1,56 @@
+'use strict';
+
+const sub3 = (v1, v2) => ({
+  x: v1.x - v2.x,
+  y: v1.y - v2.y,
+  z: v1.z - v2.z,
+});
+
+const norm3 = (v) => {
+  const s = 1 / Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+  return {
+    x: v.x * s,
+    y: v.y * s,
+    z: v.z * s,
+  };
+};
+
+const cross3 = (v1, v2) => ({
+  x: v1.y * v2.z - v1.z * v2.y,
+  y: v1.z * v2.x - v1.x * v2.z,
+  z: v1.x * v2.y - v1.y * v2.x,
+});
+
+function makeSphericalRay(radius, inclination, azimuth) {
+  const d = Math.sin(inclination);
+  return {
+    x: radius * Math.cos(azimuth) * d,
+    y: radius * Math.sin(azimuth) * d,
+    z: radius * Math.cos(inclination),
+  };
+}
+
+function makeViewMatrix(eye, target, up) {
+  const z = norm3(sub3(eye, target));
+  const x = norm3(cross3(up, z));
+  const y = cross3(z, x);
+
+  return [
+    x.x, x.y, x.z, 0,
+    y.x, y.y, y.z, 0,
+    z.x, z.y, z.z, 0,
+    eye.x, eye.y, eye.z, 1,
+  ];
+}
+
+const applyMat4Vec = (m, v) => ({
+  x: v.x * m[0] + v.y * m[4] + v.z * m[8],
+  y: v.x * m[1] + v.y * m[5] + v.z * m[9],
+  z: v.x * m[2] + v.y * m[6] + v.z * m[10],
+});
+
+const applyMat4Point = (m, v) => ({
+  x: v.x * m[0] + v.y * m[4] + v.z * m[8] + m[12],
+  y: v.x * m[1] + v.y * m[5] + v.z * m[9] + m[13],
+  z: v.x * m[2] + v.y * m[6] + v.z * m[10] + m[14],
+});
