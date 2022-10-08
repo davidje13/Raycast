@@ -14,13 +14,14 @@
     <form action="#">
       <fieldset>
         <legend>Animation</legend>
-        <label>Frame <input name="frame" type="range" value="1" min="0" max="1" step="any" /></label>
+        <label>Frame <input name="frame" type="range" value="1" min="0" max="1" step="any" data-target="stencil" /></label>
+        <label>Trace <input name="trace" type="range" value="0.25" min="0" max="1" step="any" data-target="stencil" /></label>
       </fieldset>
       <fieldset>
         <legend>Light</legend>
         <label>Z <input name="lightz" type="range" value="-5" min="-20" max="0" step="any" /></label>
         <label>Fog <input name="fog" type="range" value="0.4" min="0" max="1" step="any" /></label>
-        <label>Exposure <input name="exposure" type="range" value="5" min="0" max="10" step="any" /></label>
+        <label>Exposure <input name="exposure" type="range" value="25" min="0" max="100" step="any" data-target="display" /></label>
       </fieldset>
       <fieldset>
         <legend>Camera</legend>

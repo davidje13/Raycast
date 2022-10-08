@@ -40,19 +40,19 @@ const path2b = new Path2D(`
   h2
 `);
 const path3a = new Path2D(`
-  M16,105
-  h-16
+  M14,105
+  h-14
 `);
 const path3b = new Path2D(`
-  M-16,105
-  h16
+  M-14,105
+  h14
 `);
 const path4 = new Path2D(`
-  M0,104
-  v-15
+  M0,104.5
+  v-11.5
 `);
 
-function renderLogo(ctx, progress) {
+function renderLogo(ctx, progress, trace) {
   const s = ctx.canvas.width;
   ctx.resetTransform();
   ctx.fillStyle = '#000000';
@@ -68,39 +68,36 @@ function renderLogo(ctx, progress) {
   });
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = '#FFFFFF';
 
-  let total = progress * (495 + 55 + 16 + 16);
-  if (total >= 0) {
-    setLineLen(ctx, total);
-    ctx.lineWidth = 9;
-    ctx.stroke(path1);
-  }
+  const traceC = (Math.min(trace * 256, 255)|0).toString(16).padStart(2, '0');
+  const traceCol = `#${traceC}${traceC}${traceC}`;
+  const pointCol = '#FFFFFF';
 
-  total -= 495;
-  if (total >= 0) {
-    setLineLen(ctx, total);
-    ctx.lineWidth = 8;
-    ctx.stroke(path2a);
-    ctx.stroke(path2b);
-  }
+  let total = progress * (494 + 55 + 14 + 12);
+  drawLines(ctx, [path1], 9, total, traceCol, pointCol);
+
+  total -= 494;
+  drawLines(ctx, [path2a, path2b], 8, total, traceCol, pointCol);
 
   total -= 55;
-  if (total >= 0) {
-    setLineLen(ctx, total);
-    ctx.lineWidth = 4;
-    ctx.stroke(path3a);
-    ctx.stroke(path3b);
-  }
+  drawLines(ctx, [path3a, path3b], 4, total, traceCol, pointCol);
 
-  total -= 16;
-  if (total >= 0) {
-    setLineLen(ctx, total);
-    ctx.lineWidth = 4;
-    ctx.stroke(path4);
-  }
+  total -= 14;
+  drawLines(ctx, [path4], 4, total, traceCol, pointCol);
 }
 
-function setLineLen(ctx, len) {
-  ctx.setLineDash([Math.max(len, 0), 9999]);
+function drawLines(ctx, paths, width, length, traceCol, pointCol) {
+  if (length >= 0) {
+    ctx.lineWidth = width;
+
+    ctx.lineDashOffset = 0;
+    ctx.setLineDash([length, 9999]);
+    ctx.strokeStyle = traceCol;
+    paths.forEach((path) => ctx.stroke(path));
+
+    ctx.lineDashOffset = -length;
+    ctx.setLineDash([0, 9999]);
+    ctx.strokeStyle = pointCol;
+    paths.forEach((path) => ctx.stroke(path));
+  }
 }

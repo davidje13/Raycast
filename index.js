@@ -6,33 +6,30 @@ window.devicePixelRatio = 1;
 const canvasW = 640;
 const canvasH = 480;
 const fastDownsample = 8;
-const stencilS = 2048;
+const stencilSize = 2048;
 const dustS = 1024;
 const dustCount = 10000;
 const maxDustZ = 8;
 const minDustZ = -2;
 const e = 1e-6;
 
-const stencil = new Float32Array(stencilS * stencilS);
+const stencil = new Float32Array(stencilSize * stencilSize);
 const dust = new Float32Array(dustS * dustS);
 const canvas = new Float32Array(canvasW * canvasH);
+let wasFull = true;
+let stencilS = stencilSize;
 let minStencilX = 0;
 let minStencilY = 0;
 let maxStencilX = 0;
 let maxStencilY = 0;
+let stencilCtx = null;
 
-function renderStencil() {
-  const c = document.getElementById('stencil');
-  c.width = stencilS;
-  c.height = stencilS;
-  const ctx = c.getContext('2d', { alpha: false, willReadFrequently: true });
-  renderLogo(ctx, getValue('frame'));
+function renderStencil(full) {
+  renderLogo(stencilCtx, getValue('frame'), getValue('trace'));
+  const { data } = stencilCtx.getImageData(0, 0, stencilSize, stencilSize);
 
-  const dat = ctx.getImageData(0, 0, stencilS, stencilS);
-
-  for (let i = 0; i < stencilS * stencilS; ++i) {
-    stencil[i] = dat.data[i * 4] / 255;
-  }
+  const downsample = full ? 1 : 8;
+  stencilS = stencilSize / downsample;
 
   minStencilX = stencilS;
   minStencilY = stencilS;
@@ -40,7 +37,9 @@ function renderStencil() {
   maxStencilY = 0;
   for (let y = 0; y < stencilS; ++y) {
     for (let x = 0; x < stencilS; ++x) {
-      if (stencil[y * stencilS + x]) {
+      const v = data[(y * downsample * stencilSize + x * downsample) * 4] / 255;
+      stencil[y * stencilS + x] = v;
+      if (v) {
         minStencilY = Math.min(minStencilY, y);
         minStencilX = Math.min(minStencilX, x);
         maxStencilX = Math.max(maxStencilX, x);
@@ -77,7 +76,7 @@ function renderDust() {
       }
     }
   }
-  draw(document.getElementById('dust'), dustS, dustS, dust);
+  draw(document.getElementById('dust'), dustS, dustS, dust, 0, 256);
 }
 
 function getViewMatrix() {
@@ -101,13 +100,13 @@ function getViewMatrix() {
 }
 
 function render(full) {
-  const w = (full ? canvasW : canvasW / fastDownsample)|0;
-  const h = (full ? canvasH : canvasH / fastDownsample)|0;
-  const steps = full ? 200 : 10;
+  wasFull = full;
+  const w = (wasFull ? canvasW : canvasW / fastDownsample)|0;
+  const h = (wasFull ? canvasH : canvasH / fastDownsample)|0;
+  const steps = wasFull ? 200 : 10;
   const view = getViewMatrix();
   const lz = getValue('lightz');
   const ifog = 1 - getValue('fog');
-  const exposure = getValue('exposure');
   const cx = 0.5 - w / 2;
   const cy = 0.5 - h / 2;
 
@@ -195,11 +194,22 @@ function render(full) {
         remaining *= ifogstep;
       }
 
-      canvas[y * w + x] = (accum + surface * remaining) * exposure;
+      canvas[y * w + x] = (accum + surface * remaining);
     }
   }
 
-  draw(document.getElementById('output'), w, h, canvas, (full ? 1 : fastDownsample) / dpr);
+  drawRendered();
+}
+
+function drawRendered() {
+  draw(
+    document.getElementById('output'),
+    (wasFull ? canvasW : canvasW / fastDownsample)|0,
+    (wasFull ? canvasH : canvasH / fastDownsample)|0,
+    canvas,
+    (wasFull ? 1 : fastDownsample) / dpr,
+    getValue('exposure') * 256,
+  );
 }
 
 function getSurface(ox, oy, oz, rx, ry, rz) {
@@ -215,7 +225,7 @@ function getSurface(ox, oy, oz, rx, ry, rz) {
   return stencil[((y * stencilS)|0) * stencilS + ((x * stencilS)|0)];
 }
 
-function draw(c, w, h, d, scale) {
+function draw(c, w, h, d, scale, exposure) {
   c.width = w;
   c.height = h;
   if (scale) {
@@ -226,7 +236,7 @@ function draw(c, w, h, d, scale) {
   const dat = new ImageData(w, h);
   const rgba = dat.data;
   for (let i = 0; i < w * h; ++i) {
-    const v = d[i] * 256;
+    const v = d[i] * exposure;
     rgba[i * 4    ] = v;
     rgba[i * 4 + 1] = v;
     rgba[i * 4 + 2] = v;
@@ -242,27 +252,37 @@ function getValue(name) {
 
 const fastRender = render.bind(null, false);
 const fullRender = () => setTimeout(() => render(true), 0);
+const fastStencil = () => {
+  renderStencil(false);
+  render(false);
+};
+const fullStencil = () => {
+  renderStencil(true);
+  setTimeout(() => render(true), 0);
+};
 
 window.addEventListener('DOMContentLoaded', () => {
-  for (const i of document.getElementsByTagName('input')) {
-    i.addEventListener('input', fastRender);
-  }
-  for (const i of document.getElementsByTagName('input')) {
-    i.addEventListener('change', fullRender);
-  }
-  const frame = document.getElementsByName('frame')[0];
-  frame.removeEventListener('input', fastRender);
-  frame.removeEventListener('change', fullRender);
-  frame.addEventListener('input', () => {
-    renderStencil();
-    fastRender();
-  });
-  frame.addEventListener('change', () => {
-    renderStencil();
-    fullRender();
-  });
+  const stencilC = document.getElementById('stencil');
+  stencilC.width = stencilSize;
+  stencilC.height = stencilSize;
+  stencilCtx = stencilC.getContext('2d', { alpha: false, willReadFrequently: true });
 
-  renderStencil();
+  for (const i of document.getElementsByTagName('input')) {
+    switch (i.dataset['target']) {
+      case 'stencil':
+        i.addEventListener('input', fastStencil);
+        i.addEventListener('change', fullStencil);
+        break;
+      case 'display':
+        i.addEventListener('input', drawRendered);
+        break;
+      default:
+        i.addEventListener('input', fastRender);
+        i.addEventListener('change', fullRender);
+    }
+  }
+
+  renderStencil(true);
   renderDust();
   fullRender();
 });
