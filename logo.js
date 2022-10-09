@@ -52,19 +52,18 @@ const path4 = new Path2D(`
   v-11.5
 `);
 
-function renderLogo(ctx, progress, trace) {
-  const s = ctx.canvas.width;
+function renderLogo(ctx, size, progress, trace) {
   ctx.resetTransform();
   ctx.fillStyle = '#000000';
-  ctx.fillRect(0, 0, s, s);
+  ctx.fillRect(0, 0, size, size);
 
   ctx.setTransform({
-    a: s / 160,
+    a: size / 160,
     b: 0,
     c: 0,
-    d: s / 160,
-    e: s / 2,
-    f: s * 26 / 160,
+    d: size / 160,
+    e: size / 2,
+    f: size * 26 / 160,
   });
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';

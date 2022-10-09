@@ -6,40 +6,31 @@ window.devicePixelRatio = 1;
 const canvasW = 640;
 const canvasH = 480;
 const fastDownsample = 8;
-const stencilSize = 2048;
+const stencilS = 512;
 const dustS = 1024;
 const dustCount = 10000;
 const maxDustZ = 8;
 const minDustZ = -2;
-const e = 1e-6;
 
-const stencil = new Float32Array(stencilSize * stencilSize);
+const stencilC = new OffscreenCanvas(stencilS, stencilS);
+const stencilCtx = stencilC.getContext('2d', { alpha: false });
+
 const dust = new Float32Array(dustS * dustS);
-const canvas = new Float32Array(canvasW * canvasH);
-let wasFull = true;
-let stencilS = stencilSize;
-let minStencilX = 0;
-let minStencilY = 0;
-let maxStencilX = 0;
-let maxStencilY = 0;
-let stencilCtx = null;
+let minStencilX = -1;
+let minStencilY = -1;
+let maxStencilX = 1;
+let maxStencilY = 1;
 
 function renderStencil(full) {
-  renderLogo(stencilCtx, getValue('frame'), getValue('trace'));
-  const { data } = stencilCtx.getImageData(0, 0, stencilSize, stencilSize);
-
-  const downsample = full ? 1 : 8;
-  stencilS = stencilSize / downsample;
-
+  renderLogo(stencilCtx, stencilS, getValue('frame'), getValue('trace'));
+  const { data } = stencilCtx.getImageData(0, 0, stencilS, stencilS);
   minStencilX = stencilS;
   minStencilY = stencilS;
   maxStencilX = 0;
   maxStencilY = 0;
   for (let y = 0; y < stencilS; ++y) {
     for (let x = 0; x < stencilS; ++x) {
-      const v = data[(y * downsample * stencilSize + x * downsample) * 4] / 255;
-      stencil[y * stencilS + x] = v;
-      if (v) {
+      if (data[(y * stencilS + x) * 4]) {
         minStencilY = Math.min(minStencilY, y);
         minStencilX = Math.min(minStencilX, x);
         maxStencilX = Math.max(maxStencilX, x);
@@ -47,10 +38,10 @@ function renderStencil(full) {
       }
     }
   }
-  minStencilX = minStencilX * 2 / stencilS - 1;
-  minStencilY = minStencilY * 2 / stencilS - 1;
-  maxStencilX = maxStencilX * 2 / stencilS - 1;
-  maxStencilY = maxStencilY * 2 / stencilS - 1;
+  minStencilX = (minStencilX - 1) * 2 / stencilS - 1;
+  minStencilY = (minStencilY - 1) * 2 / stencilS - 1;
+  maxStencilX = (maxStencilX + 1) * 2 / stencilS - 1;
+  maxStencilY = (maxStencilY + 1) * 2 / stencilS - 1;
 }
 
 function renderDust() {
@@ -79,152 +70,6 @@ function renderDust() {
   draw(document.getElementById('dust'), dustS, dustS, dust, 0, 256);
 }
 
-function getViewMatrix() {
-  return makeViewMatrix(
-    {
-      x: getValue('camerax'),
-      y: getValue('cameray'),
-      z: getValue('cameraz'),
-    },
-    {
-      x: getValue('focusx'),
-      y: getValue('focusy'),
-      z: getValue('focusz'),
-    },
-    {
-      x: getValue('upx'),
-      y: getValue('upy'),
-      z: getValue('upz'),
-    },
-  );
-}
-
-function render(full) {
-  wasFull = full;
-  const w = (wasFull ? canvasW : canvasW / fastDownsample)|0;
-  const h = (wasFull ? canvasH : canvasH / fastDownsample)|0;
-  const steps = wasFull ? 200 : 10;
-  const view = getViewMatrix();
-  const lz = getValue('lightz');
-  const ifog = 1 - getValue('fog');
-  const cx = 0.5 - w / 2;
-  const cy = 0.5 - h / 2;
-
-  const { x: ox, y: oy, z: oz } = applyMat4Point(view, { x: 0, y: 0, z: 0 });
-  const fovm = (getValue('fov') * Math.PI) / (w * 180);
-
-  const A = 1 - oz / lz;
-
-  for (let y = 0; y < h; ++y) {
-    for (let x = 0; x < w; ++x) {
-      const { x: rx, y: ry, z: rz } = applyMat4Vec(
-        view,
-        makeSphericalRay(
-          -1,
-          Math.hypot(y + cy, x + cx) * fovm,
-          Math.atan2(y + cy, x + cx),
-        ),
-      );
-
-      const surface = getSurface(ox, oy, oz, rx, ry, rz);
-      const B = -rz / lz;
-
-      const tl = (ox - A * minStencilX) / (B * minStencilX - rx);
-      const tr = (ox - A * maxStencilX) / (B * maxStencilX - rx);
-      const tb = (oy - A * minStencilY) / (B * minStencilY - ry);
-      const tt = (oy - A * maxStencilY) / (B * maxStencilY - ry);
-      const tn = (maxDustZ - oz) / rz;
-      const tf = ((surface ? minDustZ : 0) - oz) / rz;
-
-      let tmin = Number.POSITIVE_INFINITY;
-      let tmax = Number.POSITIVE_INFINITY;
-      for (const t of [0, Math.min(tl, tr), Math.min(tt, tb), tn]) {
-        if (t < 0 || t > tmin) {
-          continue;
-        }
-        const m = A + B * t;
-        const sx = ox + rx * t;
-        const sy = oy + ry * t;
-        const z = oz + rz * t;
-        if (
-          sx + e >= minStencilX * m && sx - e <= maxStencilX * m &&
-          sy + e >= minStencilY * m && sy - e <= maxStencilY * m &&
-          z + e >= 0 && z - e <= maxDustZ
-        ) {
-          tmin = t;
-        }
-      }
-      for (const check of [tl, tr, tt, tb, tn, tf]) {
-        if (check > tmin && check < tmax) {
-          tmax = check;
-        }
-      }
-      if (tmax === Number.POSITIVE_INFINITY) {
-        canvas[y * w + x] = 0;
-        continue;
-      }
-      //canvas[y * w + x] = (tmax - tmin) * 0.1 + 0.5;
-      //continue;
-      let accum = 0;
-      let remaining = Math.pow(ifog, tmin);
-      const step = (tmax - tmin) / steps;
-      const ifogstep = Math.pow(ifog, step);
-      for (let i = 0; i < steps; ++i) {
-        const t = tmin + step * i;
-        const m = 1 / (A + B * t);
-        const sx = (ox + rx * t) * m * 0.5 + 0.5;
-        const sy = (oy + ry * t) * m * 0.5 + 0.5;
-        const z = oz + rz * t;
-        const v = z <= 0
-          ? surface
-          : stencil[((sy * stencilS)|0) * stencilS + ((sx * stencilS)|0)];
-        if (v) {
-          const d = dust[((sy * dustS)|0) * dustS + ((sx * dustS)|0)];
-          if (z < d) {
-            // cheat: assume z ~= distance from surface for light attenuation due to fog
-            accum += (
-              v // light through stencil
-              * Math.pow(ifog, z) // approx. attenuation due to fog on path of light
-              * m * m // attenuation due to dispersal of light
-              * (1 - ifogstep) // integral of fog over distance travelled by ray this step
-              * remaining // integral of fog over ray so far
-            );
-          }
-        }
-        remaining *= ifogstep;
-      }
-
-      canvas[y * w + x] = (accum + surface * remaining);
-    }
-  }
-
-  drawRendered();
-}
-
-function drawRendered() {
-  draw(
-    document.getElementById('output'),
-    (wasFull ? canvasW : canvasW / fastDownsample)|0,
-    (wasFull ? canvasH : canvasH / fastDownsample)|0,
-    canvas,
-    (wasFull ? 1 : fastDownsample) / dpr,
-    getValue('exposure') * 256,
-  );
-}
-
-function getSurface(ox, oy, oz, rx, ry, rz) {
-  if (rz * oz >= 0) {
-    return 0;
-  }
-  const tsurface = -oz / rz;
-  const x = (ox + tsurface * rx) * 0.5 + 0.5;
-  const y = (oy + tsurface * ry) * 0.5 + 0.5;
-  if (x <= 0 || x >= 1 || y <= 0 || y >= 1) {
-    return 0;
-  }
-  return stencil[((y * stencilS)|0) * stencilS + ((x * stencilS)|0)];
-}
-
 function draw(c, w, h, d, scale, exposure) {
   c.width = w;
   c.height = h;
@@ -250,31 +95,252 @@ function getValue(name) {
   return Number.parseFloat(o.value);
 }
 
-const fastRender = render.bind(null, false);
-const fullRender = () => setTimeout(() => render(true), 0);
-const fastStencil = () => {
-  renderStencil(false);
-  render(false);
-};
-const fullStencil = () => {
-  renderStencil(true);
-  setTimeout(() => render(true), 0);
-};
+class Renderer extends GLContext {
+  constructor(canvas) {
+    super(canvas, {
+      alpha: false,
+      depth: false,
+      stencil: false,
+      antialias: false,
+      preserveDrawingBuffer: false,
+    });
+    this.resize((canvasW / dpr)|0, (canvasH / dpr)|0, dpr);
+
+    this.stencil = this.ctx.createTexture();
+    this.ctx.bindTexture(GL.TEXTURE_2D, this.stencil);
+    this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_S, GL.CLAMP_TO_EDGE);
+    this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_T, GL.CLAMP_TO_EDGE);
+    this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MAG_FILTER, GL.LINEAR);
+    this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MIN_FILTER, GL.LINEAR);
+
+    this.dust = this.ctx.createTexture();
+    this.ctx.bindTexture(GL.TEXTURE_2D, this.dust);
+    this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_S, GL.CLAMP_TO_EDGE);
+    this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_T, GL.CLAMP_TO_EDGE);
+    this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MAG_FILTER, GL.NEAREST);
+    this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MIN_FILTER, GL.NEAREST);
+
+    this.program = this.linkVertexFragmentProgram(
+      `#version 300 es
+      precision highp float;
+      uniform vec2 fov;
+      in vec2 v;
+      out vec2 p;
+      void main(void) {
+        p = v * fov;
+        gl_Position = vec4(v, 0.0, 1.0);
+      }`,
+
+      `#version 300 es
+      precision highp float;
+      const float inf = 1e38;
+      const float e = 1e-6;
+      uniform sampler2D stencil;
+      uniform sampler2D dust;
+      uniform vec3 origin;
+      uniform mat3 view;
+      uniform vec3 stencilLow;
+      uniform vec3 stencilHigh;
+      uniform float lightz;
+      uniform int steps;
+      uniform float ifog;
+      uniform float exposure;
+      in vec2 p;
+      out vec4 col;
+      float checkRangeLow(float current, float A, float B, vec3 ray, float t) {
+        if (t < 0.0 || t > current) {
+          return current;
+        }
+        float m = A - B * t;
+        vec3 s = origin + ray * t;
+        if (
+          s.x + e >= stencilLow.x * m && s.x - e <= stencilHigh.x * m &&
+          s.y + e >= stencilLow.y * m && s.y - e <= stencilHigh.y * m &&
+          s.z + e >= 0.0 && s.z - e <= stencilHigh.z
+        ) {
+          return t;
+        }
+        return current;
+      }
+      float checkRangeHigh(float current, float tmin, float t) {
+        if (t > tmin && t < current) {
+          return t;
+        }
+        return current;
+      }
+      void main(void) {
+        float inclination = length(p);
+        vec3 ray = view * -vec3(
+          sin(inclination) * p / inclination,
+          cos(inclination)
+        );
+        float surface = ray.z * origin.z >= 0.0 ? 0.0 : texture(stencil, (origin.xy - ray.xy * origin.z / ray.z) * 0.5 + 0.5).x;
+        float A = 1.0 - origin.z / lightz; // constant
+        float B = ray.z / lightz;
+        float tl = (A * stencilLow.x - origin.x) / (B * stencilLow.x + ray.x);
+        float tr = (A * stencilHigh.x - origin.x) / (B * stencilHigh.x + ray.x);
+        float tb = (A * stencilLow.y - origin.y) / (B * stencilLow.y + ray.y);
+        float tt = (A * stencilHigh.y - origin.y) / (B * stencilHigh.y + ray.y);
+        float tn = (stencilHigh.z - origin.z) / ray.z;
+        float tf = ((surface > 0.0 ? stencilLow.z : 0.0) - origin.z) / ray.z;
+
+        float tmin = checkRangeLow(inf, A, B, ray, 0.0);
+        tmin = checkRangeLow(tmin, A, B, ray, min(tl, tr));
+        tmin = checkRangeLow(tmin, A, B, ray, min(tt, tb));
+        tmin = checkRangeLow(tmin, A, B, ray, tn);
+        float tmax = checkRangeHigh(inf, tmin, tl);
+        tmax = checkRangeHigh(tmax, tmin, tr);
+        tmax = checkRangeHigh(tmax, tmin, tt);
+        tmax = checkRangeHigh(tmax, tmin, tb);
+        tmax = checkRangeHigh(tmax, tmin, tn);
+        tmax = checkRangeHigh(tmax, tmin, tf);
+        if (tmax == inf) {
+          col = vec4(0.0);
+          return;
+        }
+        // (tmax - tmin) * 0.1 + 0.5
+        float accum = 0.0;
+        float remaining = pow(ifog, tmin);
+        float step = (tmax - tmin) / float(steps);
+        float ifogstep = pow(ifog, step);
+        float t = tmin;
+        for (int i = 0; i < steps; ++i) {
+          float m = 1.0 / (A - B * t);
+          vec3 pos = origin + ray * t;
+          vec2 s = pos.xy * m * 0.5 + 0.5;
+          float v = pos.z <= 0.0 ? surface : texture(stencil, s).x;
+          if (v > 0.0) {
+            float d = texture(dust, s).x;
+            if (pos.z < d) {
+              // cheat: assume z ~= distance from surface for light attenuation due to fog
+              accum += (
+                v // light through stencil
+                * pow(ifog, pos.z) // approx. attenuation due to fog on path of light
+                * m * m // attenuation due to dispersal of light
+                * (1.0 - ifogstep) // integral of fog over distance travelled by ray this step
+                * remaining // integral of fog over ray so far
+              );
+            }
+          }
+          remaining *= ifogstep;
+          t += step;
+        }
+
+        col = vec4(vec3(accum + surface * remaining) * exposure, 1.0);
+      }`,
+    );
+
+    this.programStencil = this.ctx.getUniformLocation(this.program, 'stencil');
+    this.programDust = this.ctx.getUniformLocation(this.program, 'dust');
+    this.programFOV = this.ctx.getUniformLocation(this.program, 'fov');
+    this.programOrigin = this.ctx.getUniformLocation(this.program, 'origin');
+    this.programView = this.ctx.getUniformLocation(this.program, 'view');
+    this.programStencilLow = this.ctx.getUniformLocation(this.program, 'stencilLow');
+    this.programStencilHigh = this.ctx.getUniformLocation(this.program, 'stencilHigh');
+    this.programLightZ = this.ctx.getUniformLocation(this.program, 'lightz');
+    this.programSteps = this.ctx.getUniformLocation(this.program, 'steps');
+    this.programIFog = this.ctx.getUniformLocation(this.program, 'ifog');
+    this.programExposure = this.ctx.getUniformLocation(this.program, 'exposure');
+    this.programV = this.ctx.getAttribLocation(this.program, 'v');
+  }
+
+  updateStencil(canvas) {
+    this.ctx.bindTexture(GL.TEXTURE_2D, this.stencil);
+    this.ctx.texImage2D(
+      GL.TEXTURE_2D,
+      0,
+      GL.LUMINANCE,
+      canvas.width,
+      canvas.height,
+      0,
+      GL.LUMINANCE,
+      GL.UNSIGNED_BYTE,
+      canvas.transferToImageBitmap(),
+    );
+  }
+
+  updateDust(data, size) {
+    this.ctx.bindTexture(GL.TEXTURE_2D, this.dust);
+    this.ctx.texImage2D(
+      GL.TEXTURE_2D,
+      0,
+      GL.R32F,
+      size,
+      size,
+      0,
+      GL.RED,
+      GL.FLOAT,
+      data,
+    );
+  }
+
+  render(full) {
+    const view = makeViewMatrix(
+      {
+        x: getValue('camerax'),
+        y: getValue('cameray'),
+        z: getValue('cameraz'),
+      },
+      {
+        x: getValue('focusx'),
+        y: getValue('focusy'),
+        z: getValue('focusz'),
+      },
+      {
+        x: getValue('upx'),
+        y: getValue('upy'),
+        z: getValue('upz'),
+      },
+    );
+
+    const fov = getValue('fov') * 0.5 * Math.PI / 180;
+
+    this.ctx.useProgram(this.program);
+    this.ctx.activeTexture(GL.TEXTURE0);
+    this.ctx.bindTexture(GL.TEXTURE_2D, this.stencil);
+    this.ctx.uniform1i(this.programStencil, 0);
+    this.ctx.activeTexture(GL.TEXTURE1);
+    this.ctx.bindTexture(GL.TEXTURE_2D, this.dust);
+    this.ctx.uniform1i(this.programDust, 1);
+    this.ctx.uniform2f(this.programFOV, fov, -fov * canvasH / canvasW);
+    this.ctx.uniform3f(this.programOrigin, view[12], view[13], view[14]);
+    this.ctx.uniformMatrix3fv(this.programView, false, [
+      view[0], view[1], view[2],
+      view[4], view[5], view[6],
+      view[8], view[9], view[10],
+    ]);
+    this.ctx.uniform3f(this.programStencilLow, minStencilX, minStencilY, minDustZ);
+    this.ctx.uniform3f(this.programStencilHigh, maxStencilX, maxStencilY, maxDustZ);
+    this.ctx.uniform1f(this.programLightZ, getValue('lightz'));
+    this.ctx.uniform1i(this.programSteps, full ? 300 : 50);
+    this.ctx.uniform1f(this.programIFog, 1 - getValue('fog'));
+    this.ctx.uniform1f(this.programExposure, getValue('exposure'));
+    this.drawQuad(this.programV);
+  }
+}
 
 window.addEventListener('DOMContentLoaded', () => {
-  const stencilC = document.getElementById('stencil');
-  stencilC.width = stencilSize;
-  stencilC.height = stencilSize;
-  stencilCtx = stencilC.getContext('2d', { alpha: false, willReadFrequently: true });
+  const renderer = new Renderer(document.getElementById('output'));
+
+  const fastRender = () => renderer.render(false);
+  const fullRender = () => setTimeout(() => renderer.render(true), 0);
+  const fastStencil = () => {
+    renderStencil(false);
+    renderer.updateStencil(stencilC);
+    renderer.render(false);
+  };
+  const fullStencil = () => {
+    renderStencil(true);
+    renderer.updateStencil(stencilC);
+    setTimeout(() => renderer.render(true), 0);
+  };
 
   for (const i of document.getElementsByTagName('input')) {
     switch (i.dataset['target']) {
       case 'stencil':
+      case 'display':
         i.addEventListener('input', fastStencil);
         i.addEventListener('change', fullStencil);
-        break;
-      case 'display':
-        i.addEventListener('input', drawRendered);
         break;
       default:
         i.addEventListener('input', fastRender);
@@ -282,7 +348,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  renderStencil(true);
   renderDust();
-  fullRender();
+  renderer.updateDust(dust, dustS);
+  fullStencil();
 });
