@@ -1,0 +1,9 @@
+body {
+  display: flex;
+  flex-flow: wrap;
+  gap: 10px;
+}
+
+label {
+  white-space: nowrap;
+}

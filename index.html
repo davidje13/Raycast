@@ -2,16 +2,14 @@
 <html lang="en">
   <head>
     <title>Raycast</title>
-    <script src="math.js"></script>
-    <script src="gl.js"></script>
-    <script src="logo.js"></script>
-    <script src="index.js"></script>
-    <link rel="stylesheet" href="style.css" />
+    <script src="src/math.js"></script>
+    <script src="src/gl.js"></script>
+    <script src="src/logo.js"></script>
+    <script src="src/index.js"></script>
+    <link rel="stylesheet" href="src/style.css" />
   </head>
   <body>
-    <section>
-      <canvas id="output"></canvas>
-    </section>
+    <canvas id="output"></canvas>
     <form action="#">
       <fieldset>
         <legend>Animation</legend>
@@ -19,22 +17,55 @@
         <label>Trace <input name="trace" type="range" value="0.25" min="0" max="1" step="any" data-target="stencil" /></label>
       </fieldset>
       <fieldset>
-        <legend>Light</legend>
-        <label>Z <input name="lightz" type="range" value="-5" min="-20" max="0" step="any" /></label>
+        <legend>Scene</legend>
         <label>Fog <input name="fog" type="range" value="0.4" min="0" max="1" step="any" /></label>
-        <label>Exposure <input name="exposure" type="range" value="25" min="0" max="100" step="any" data-target="display" /></label>
+      </fieldset>
+      <fieldset>
+        <legend><label><input name="light1" type="checkbox" checked /> Light 1</label></legend>
+        <label>Z <input name="light1z" type="range" value="-2.3" min="-20" max="0" step="any" /></label>
+        <label>R <input name="light1r" type="range" value="15" min="0" max="100" step="any" /></label>
+        <label>G <input name="light1g" type="range" value="0" min="0" max="100" step="any" /></label>
+        <label>B <input name="light1b" type="range" value="0" min="0" max="100" step="any" /></label>
+      </fieldset>
+      <fieldset>
+        <legend><label><input name="light2" type="checkbox" checked /> Light 2</label></legend>
+        <label>Z <input name="light2z" type="range" value="-2.15" min="-20" max="0" step="any" /></label>
+        <label>R <input name="light2r" type="range" value="10" min="0" max="100" step="any" /></label>
+        <label>G <input name="light2g" type="range" value="5" min="0" max="100" step="any" /></label>
+        <label>B <input name="light2b" type="range" value="0" min="0" max="100" step="any" /></label>
+      </fieldset>
+      <fieldset>
+        <legend><label><input name="light3" type="checkbox" checked /> Light 3</label></legend>
+        <label>Z <input name="light3z" type="range" value="-2" min="-20" max="0" step="any" /></label>
+        <label>R <input name="light3r" type="range" value="0" min="0" max="100" step="any" /></label>
+        <label>G <input name="light3g" type="range" value="10" min="0" max="100" step="any" /></label>
+        <label>B <input name="light3b" type="range" value="0" min="0" max="100" step="any" /></label>
+      </fieldset>
+      <fieldset>
+        <legend><label><input name="light4" type="checkbox" checked /> Light 4</label></legend>
+        <label>Z <input name="light4z" type="range" value="-1.85" min="-20" max="0" step="any" /></label>
+        <label>R <input name="light4r" type="range" value="0" min="0" max="100" step="any" /></label>
+        <label>G <input name="light4g" type="range" value="5" min="0" max="100" step="any" /></label>
+        <label>B <input name="light4b" type="range" value="10" min="0" max="100" step="any" /></label>
+      </fieldset>
+      <fieldset>
+        <legend><label><input name="light5" type="checkbox" checked /> Light 5</label></legend>
+        <label>Z <input name="light5z" type="range" value="-1.7" min="-20" max="0" step="any" /></label>
+        <label>R <input name="light5r" type="range" value="0" min="0" max="100" step="any" /></label>
+        <label>G <input name="light5g" type="range" value="0" min="0" max="100" step="any" /></label>
+        <label>B <input name="light5b" type="range" value="15" min="0" max="100" step="any" /></label>
       </fieldset>
       <fieldset>
         <legend>Camera</legend>
         <label>X <input name="camerax" type="range" value="0" min="-5" max="5" step="any" /></label>
-        <label>Y <input name="cameray" type="range" value="3" min="-5" max="5" step="any" /></label>
-        <label>Z <input name="cameraz" type="range" value="2" min="0" max="5" step="any" /></label>
-        <label>FOV <input name="fov" type="range" value="60" min="0" max="180" step="any" /></label>
+        <label>Y <input name="cameray" type="range" value="2" min="-5" max="5" step="any" /></label>
+        <label>Z <input name="cameraz" type="range" value="1.5" min="0" max="5" step="any" /></label>
+        <label>FOV <input name="fov" type="range" value="100" min="0" max="180" step="any" /></label>
       </fieldset>
       <fieldset>
         <legend>Focus</legend>
         <label>X <input name="focusx" type="range" value="0" min="-2" max="2" step="any" /></label>
-        <label>Y <input name="focusy" type="range" value="0" min="-2" max="2" step="any" /></label>
+        <label>Y <input name="focusy" type="range" value="-0.675" min="-2" max="2" step="any" /></label>
         <label>Z <input name="focusz" type="range" value="0" min="0" max="2" step="any" /></label>
       </fieldset>
       <fieldset>
@@ -44,9 +75,5 @@
         <label>Z <input name="upz" type="range" value="1" min="-1" max="1" step="any" /></label>
       </fieldset>
     </form>
-    <section>
-      <canvas id="stencil"></canvas>
-      <canvas id="dust"></canvas>
-    </section>
   </body>
 </html>

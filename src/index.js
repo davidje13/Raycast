@@ -3,8 +3,8 @@
 const dpr = window.devicePixelRatio;
 window.devicePixelRatio = 1;
 
-const canvasW = 640;
-const canvasH = 480;
+const canvasW = 640 * 2;
+const canvasH = 480 * 2;
 const fastDownsample = 8;
 const stencilS = 512;
 const dustS = 1024;
@@ -67,21 +67,16 @@ function renderDust() {
       }
     }
   }
-  draw(document.getElementById('dust'), dustS, dustS, dust, 0, 256);
 }
 
-function draw(c, w, h, d, scale, exposure) {
+function draw(c, w, h, d) {
   c.width = w;
   c.height = h;
-  if (scale) {
-    c.style.width = c.width * scale + 'px';
-    c.style.height = c.height * scale + 'px';
-  }
   const ctx = c.getContext('2d', { alpha: false });
   const dat = new ImageData(w, h);
   const rgba = dat.data;
   for (let i = 0; i < w * h; ++i) {
-    const v = d[i] * exposure;
+    const v = d[i] * 256;
     rgba[i * 4    ] = v;
     rgba[i * 4 + 1] = v;
     rgba[i * 4 + 2] = v;
@@ -122,7 +117,7 @@ class Renderer extends GLContext {
 
     this.program = this.linkVertexFragmentProgram(
       `#version 300 es
-      precision highp float;
+      precision mediump float;
       uniform vec2 fov;
       in vec2 v;
       out vec2 p;
@@ -132,7 +127,7 @@ class Renderer extends GLContext {
       }`,
 
       `#version 300 es
-      precision highp float;
+      precision mediump float;
       const float inf = 1e38;
       const float e = 1e-6;
       uniform sampler2D stencil;
@@ -141,22 +136,21 @@ class Renderer extends GLContext {
       uniform mat3 view;
       uniform vec3 stencilLow;
       uniform vec3 stencilHigh;
-      uniform float lightz;
+      uniform float ilightz;
       uniform int steps;
       uniform float ifog;
-      uniform float exposure;
+      uniform vec3 lightcol;
       in vec2 p;
       out vec4 col;
       float checkRangeLow(float current, float A, float B, vec3 ray, float t) {
         if (t < 0.0 || t > current) {
           return current;
         }
-        float m = A - B * t;
+        vec2 m = vec2(A - B * t, 1.0);
         vec3 s = origin + ray * t;
         if (
-          s.x + e >= stencilLow.x * m && s.x - e <= stencilHigh.x * m &&
-          s.y + e >= stencilLow.y * m && s.y - e <= stencilHigh.y * m &&
-          s.z + e >= 0.0 && s.z - e <= stencilHigh.z
+          all(greaterThanEqual(s, vec3(stencilLow.xy, 0.0) * m.xxy - e)) &&
+          all(lessThanEqual(s, stencilHigh * m.xxy + e))
         ) {
           return t;
         }
@@ -174,15 +168,15 @@ class Renderer extends GLContext {
           sin(inclination) * p / inclination,
           cos(inclination)
         );
-        float surface = ray.z * origin.z >= 0.0 ? 0.0 : texture(stencil, (origin.xy - ray.xy * origin.z / ray.z) * 0.5 + 0.5).x;
-        float A = 1.0 - origin.z / lightz; // constant
-        float B = ray.z / lightz;
+        vec3 surface = ray.z >= 0.0 ? vec3(0.0) : texture(stencil, (origin.xy - ray.xy * origin.z / ray.z) * 0.5 + 0.5).xyz;
+        float A = 1.0 - origin.z * ilightz; // constant
+        float B = ray.z * ilightz;
         float tl = (A * stencilLow.x - origin.x) / (B * stencilLow.x + ray.x);
         float tr = (A * stencilHigh.x - origin.x) / (B * stencilHigh.x + ray.x);
         float tb = (A * stencilLow.y - origin.y) / (B * stencilLow.y + ray.y);
         float tt = (A * stencilHigh.y - origin.y) / (B * stencilHigh.y + ray.y);
         float tn = (stencilHigh.z - origin.z) / ray.z;
-        float tf = ((surface > 0.0 ? stencilLow.z : 0.0) - origin.z) / ray.z;
+        float tf = ((surface == vec3(0.0) ? 0.0 : stencilLow.z) - origin.z) / ray.z;
 
         float tmin = checkRangeLow(inf, A, B, ray, 0.0);
         tmin = checkRangeLow(tmin, A, B, ray, min(tl, tr));
@@ -195,11 +189,11 @@ class Renderer extends GLContext {
         tmax = checkRangeHigh(tmax, tmin, tn);
         tmax = checkRangeHigh(tmax, tmin, tf);
         if (tmax == inf) {
-          col = vec4(0.0);
+          col = vec4(0.0, 0.0, 0.0, 1.0);
           return;
         }
         // (tmax - tmin) * 0.1 + 0.5
-        float accum = 0.0;
+        vec3 accum = vec3(0.0);
         float remaining = pow(ifog, tmin);
         float step = (tmax - tmin) / float(steps);
         float ifogstep = pow(ifog, step);
@@ -208,8 +202,8 @@ class Renderer extends GLContext {
           float m = 1.0 / (A - B * t);
           vec3 pos = origin + ray * t;
           vec2 s = pos.xy * m * 0.5 + 0.5;
-          float v = pos.z <= 0.0 ? surface : texture(stencil, s).x;
-          if (v > 0.0) {
+          vec3 v = pos.z <= 0.0 ? surface : texture(stencil, s).xyz;
+          if (v != vec3(0.0)) {
             float d = texture(dust, s).x;
             if (pos.z < d) {
               // cheat: assume z ~= distance from surface for light attenuation due to fog
@@ -226,7 +220,7 @@ class Renderer extends GLContext {
           t += step;
         }
 
-        col = vec4(vec3(accum + surface * remaining) * exposure, 1.0);
+        col = vec4((accum + surface * remaining) * lightcol, 1.0);
       }`,
     );
 
@@ -237,10 +231,10 @@ class Renderer extends GLContext {
     this.programView = this.ctx.getUniformLocation(this.program, 'view');
     this.programStencilLow = this.ctx.getUniformLocation(this.program, 'stencilLow');
     this.programStencilHigh = this.ctx.getUniformLocation(this.program, 'stencilHigh');
-    this.programLightZ = this.ctx.getUniformLocation(this.program, 'lightz');
+    this.programILightZ = this.ctx.getUniformLocation(this.program, 'ilightz');
     this.programSteps = this.ctx.getUniformLocation(this.program, 'steps');
     this.programIFog = this.ctx.getUniformLocation(this.program, 'ifog');
-    this.programExposure = this.ctx.getUniformLocation(this.program, 'exposure');
+    this.programLightCol = this.ctx.getUniformLocation(this.program, 'lightcol');
     this.programV = this.ctx.getAttribLocation(this.program, 'v');
   }
 
@@ -249,11 +243,11 @@ class Renderer extends GLContext {
     this.ctx.texImage2D(
       GL.TEXTURE_2D,
       0,
-      GL.LUMINANCE,
+      GL.RGB,
       canvas.width,
       canvas.height,
       0,
-      GL.LUMINANCE,
+      GL.RGB,
       GL.UNSIGNED_BYTE,
       canvas.transferToImageBitmap(),
     );
@@ -311,11 +305,26 @@ class Renderer extends GLContext {
     ]);
     this.ctx.uniform3f(this.programStencilLow, minStencilX, minStencilY, minDustZ);
     this.ctx.uniform3f(this.programStencilHigh, maxStencilX, maxStencilY, maxDustZ);
-    this.ctx.uniform1f(this.programLightZ, getValue('lightz'));
-    this.ctx.uniform1i(this.programSteps, full ? 300 : 50);
+    this.ctx.uniform1i(this.programSteps, full ? 300 : 30);
     this.ctx.uniform1f(this.programIFog, 1 - getValue('fog'));
-    this.ctx.uniform1f(this.programExposure, getValue('exposure'));
-    this.drawQuad(this.programV);
+
+    let first = true;
+    this.ctx.disable(GL.BLEND);
+    for (let i = 1; i <= 5; ++i) {
+      if (!document.getElementsByName(`light${i}`)[0].checked) {
+        continue;
+      }
+
+      this.ctx.uniform1f(this.programILightZ, 1.0 / (getValue(`light${i}z`)));
+      this.ctx.uniform3f(this.programLightCol, getValue(`light${i}r`), getValue(`light${i}g`), getValue(`light${i}b`));
+      this.drawQuad(this.programV);
+
+      if (first) {
+        first = false;
+        this.ctx.blendFunc(GL.ONE, GL.ONE);
+        this.ctx.enable(GL.BLEND);
+      }
+    }
   }
 }
 
@@ -338,10 +347,10 @@ window.addEventListener('DOMContentLoaded', () => {
   for (const i of document.getElementsByTagName('input')) {
     switch (i.dataset['target']) {
       case 'stencil':
-      case 'display':
         i.addEventListener('input', fastStencil);
         i.addEventListener('change', fullStencil);
         break;
+      case 'display':
       default:
         i.addEventListener('input', fastRender);
         i.addEventListener('change', fullRender);
