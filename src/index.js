@@ -3,45 +3,72 @@
 const dpr = window.devicePixelRatio;
 window.devicePixelRatio = 1;
 
-const canvasW = 640 * 2;
-const canvasH = 480 * 2;
-const fastDownsample = 8;
-const stencilS = 512;
+const canvasW = 640;
+const canvasH = 480;
+const stencilS = 2048;
 const dustS = 1024;
 const dustCount = 10000;
 const maxDustZ = 8;
 const minDustZ = -2;
+const LIGHT_PROPORTIONS = [
+  { r: 0.55, g: 0.00, b: 0.00, a: 0.00 },
+  { r: 0.45, g: 0.30, b: 0.00, a: 0.25 },
+  { r: 0.00, g: 0.40, b: 0.00, a: 0.50 },
+  { r: 0.00, g: 0.30, b: 0.45, a: 0.75 },
+  { r: 0.00, g: 0.00, b: 0.55, a: 1.00 },
+];
+const DEG2RAD = Math.PI / 180;
 
-const stencilC = new OffscreenCanvas(stencilS, stencilS);
-const stencilCtx = stencilC.getContext('2d', { alpha: false });
+function makeStencilTarget(size) {
+  const canvas = new OffscreenCanvas(size, size);
+  const ctx = canvas.getContext('2d', { alpha: false });
+  return {
+    canvas,
+    ctx,
+    size,
+    minx: -1,
+    miny: -1,
+    maxx: 1,
+    maxy: 1,
+  };
+}
+
+const superStencil = makeStencilTarget(stencilS * 2);
+const fullStencil = makeStencilTarget(stencilS);
+const fastStencil = makeStencilTarget((stencilS / 4)|0);
 
 const dust = new Float32Array(dustS * dustS);
-let minStencilX = -1;
-let minStencilY = -1;
-let maxStencilX = 1;
-let maxStencilY = 1;
 
 function renderStencil(full) {
-  renderLogo(stencilCtx, stencilS, getValue('frame'), getValue('trace'));
-  const { data } = stencilCtx.getImageData(0, 0, stencilS, stencilS);
-  minStencilX = stencilS;
-  minStencilY = stencilS;
-  maxStencilX = 0;
-  maxStencilY = 0;
-  for (let y = 0; y < stencilS; ++y) {
-    for (let x = 0; x < stencilS; ++x) {
-      if (data[(y * stencilS + x) * 4]) {
-        minStencilY = Math.min(minStencilY, y);
-        minStencilX = Math.min(minStencilX, x);
-        maxStencilX = Math.max(maxStencilX, x);
-        maxStencilY = y;
+  const frame = getValue('frame');
+  const target = (
+    !full ? fastStencil :
+    frame < 0.1 ? superStencil :
+    fullStencil
+  );
+
+  const s = target.size;
+  renderLogo(target.ctx, s, frame, getValue('trace'));
+  const { data } = target.ctx.getImageData(0, 0, s, s);
+  let minX = s;
+  let minY = s;
+  let maxX = 0;
+  let maxY = 0;
+  for (let y = 0; y < s; ++y) {
+    for (let x = 0; x < s; ++x) {
+      if (data[(y * s + x) * 4]) {
+        minY = Math.min(minY, y);
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        maxY = y;
       }
     }
   }
-  minStencilX = (minStencilX - 1) * 2 / stencilS - 1;
-  minStencilY = (minStencilY - 1) * 2 / stencilS - 1;
-  maxStencilX = (maxStencilX + 1) * 2 / stencilS - 1;
-  maxStencilY = (maxStencilY + 1) * 2 / stencilS - 1;
+  target.minx = (minX - 1) * 2 / s - 1;
+  target.miny = (minY - 1) * 2 / s - 1;
+  target.maxx = (maxX + 1) * 2 / s - 1;
+  target.maxy = (maxY + 1) * 2 / s - 1;
+  return target;
 }
 
 function renderDust() {
@@ -69,25 +96,14 @@ function renderDust() {
   }
 }
 
-function draw(c, w, h, d) {
-  c.width = w;
-  c.height = h;
-  const ctx = c.getContext('2d', { alpha: false });
-  const dat = new ImageData(w, h);
-  const rgba = dat.data;
-  for (let i = 0; i < w * h; ++i) {
-    const v = d[i] * 256;
-    rgba[i * 4    ] = v;
-    rgba[i * 4 + 1] = v;
-    rgba[i * 4 + 2] = v;
-    rgba[i * 4 + 3] = 255;
-  }
-  ctx.putImageData(dat, 0, 0);
-}
-
 function getValue(name) {
   const o = document.getElementsByName(name)[0];
   return Number.parseFloat(o.value);
+}
+
+function setValue(name, v) {
+  const o = document.getElementsByName(name)[0];
+  return o.value = v;
 }
 
 class Renderer extends GLContext {
@@ -99,8 +115,8 @@ class Renderer extends GLContext {
       antialias: false,
       preserveDrawingBuffer: false,
     });
-    this.resize((canvasW / dpr)|0, (canvasH / dpr)|0, dpr);
 
+    this.stencilInfo = null;
     this.stencil = this.ctx.createTexture();
     this.ctx.bindTexture(GL.TEXTURE_2D, this.stencil);
     this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_S, GL.CLAMP_TO_EDGE);
@@ -191,7 +207,7 @@ class Renderer extends GLContext {
           tf = ((surface == vec3(0.0) ? 0.0 : cutoutDepth) - origin.z) / ray.z;
         } else {
           surface = vec3(0.0);
-          tf = 1000.0; // max render depth when looking up through flare
+          tf = 10.0; // max render depth when looking up through flare
         }
 
         vec2 liml = (A * lbound + light.xy - origin.xy) / (B * lbound + ray.xy);
@@ -263,18 +279,19 @@ class Renderer extends GLContext {
     this.programV = this.ctx.getAttribLocation(this.program, 'v');
   }
 
-  updateStencil(canvas) {
+  updateStencil(info) {
+    this.stencilInfo = info;
     this.ctx.bindTexture(GL.TEXTURE_2D, this.stencil);
     this.ctx.texImage2D(
       GL.TEXTURE_2D,
       0,
       GL.RGB,
-      canvas.width,
-      canvas.height,
+      info.size,
+      info.size,
       0,
       GL.RGB,
       GL.UNSIGNED_BYTE,
-      canvas.transferToImageBitmap(),
+      info.canvas.transferToImageBitmap(),
     );
   }
 
@@ -294,6 +311,10 @@ class Renderer extends GLContext {
   }
 
   render(full) {
+    this.resize(canvasW, canvasH, full ? dpr : 1);
+    const totalSteps = full ? 1500 : 300;
+    const maxStepsPerLight = 500;
+
     const view = makeViewMatrix(
       {
         x: getValue('camerax'),
@@ -312,10 +333,10 @@ class Renderer extends GLContext {
       },
     );
 
-    const fov = getValue('fov') * 0.5 * Math.PI / 180;
+    const fov = getValue('fov') * DEG2RAD * 0.5;
 
     const lights = [];
-    for (let i = 1; i <= 5; ++i) {
+    for (let i = 1; i <= LIGHT_PROPORTIONS.length; ++i) {
       if (document.getElementsByName(`light${i}`)[0].checked) {
         lights.push(i);
       }
@@ -335,16 +356,17 @@ class Renderer extends GLContext {
       view[4], view[5], view[6],
       view[8], view[9], view[10],
     ]);
-    this.ctx.uniform2f(this.programStencilLow, minStencilX, minStencilY);
-    this.ctx.uniform2f(this.programStencilHigh, maxStencilX, maxStencilY);
+    this.ctx.uniform2f(this.programStencilLow, this.stencilInfo.minx, this.stencilInfo.miny);
+    this.ctx.uniform2f(this.programStencilHigh, this.stencilInfo.maxx, this.stencilInfo.maxy);
     this.ctx.uniform1f(this.programCutoutDepth, minDustZ);
-    this.ctx.uniform1i(this.programSteps, full ? 300 : Math.ceil(120 / lights.length));
+    this.ctx.uniform1i(this.programSteps, Math.min(Math.ceil(totalSteps / lights.length), maxStepsPerLight));
     this.ctx.uniform1f(this.programIFog, 1 - getValue('fog'));
 
     this.ctx.blendFunc(GL.ONE, GL.ONE);
     this.ctx.disable(GL.BLEND);
     for (const i of lights) {
-      this.ctx.uniform3f(this.programLight, getValue(`light${i}x`), getValue(`light${i}y`), getValue(`light${i}z`));
+      const z = Math.max(-10000, -1 / Math.tan(getValue(`light${i}z`) * DEG2RAD));
+      this.ctx.uniform3f(this.programLight, getValue(`light${i}x`), getValue(`light${i}y`), z);
       this.ctx.uniform3f(this.programLightCol, getValue(`light${i}r`), getValue(`light${i}g`), getValue(`light${i}b`));
       this.drawQuad(this.programV);
 
@@ -353,20 +375,62 @@ class Renderer extends GLContext {
   }
 }
 
+function updateLights() {
+  const x = getValue('lightCx');
+  const y = getValue('lightCy');
+  const z1 = getValue('lightCz1');
+  const z2 = getValue('lightCz2');
+  const r = getValue('lightCr');
+  const g = getValue('lightCg');
+  const b = getValue('lightCb');
+
+  if (z1 === z2) {
+    document.getElementsByName('light1')[0].checked = true;
+    setValue('light1x', x);
+    setValue('light1y', y);
+    setValue('light1z', z1);
+    setValue('light1r', r);
+    setValue('light1g', g);
+    setValue('light1b', b);
+    for (let i = 2; i <= LIGHT_PROPORTIONS.length; ++i) {
+      document.getElementsByName(`light${i}`)[0].checked = false;
+    }
+    return;
+  }
+
+  for (let i = 1; i <= LIGHT_PROPORTIONS.length; ++i) {
+    document.getElementsByName(`light${i}`)[0].checked = true;
+    const props = LIGHT_PROPORTIONS[i - 1];
+
+    setValue(`light${i}x`, x);
+    setValue(`light${i}y`, y);
+    setValue(`light${i}z`, (z2 - z1) * props.a + z1);
+    setValue(`light${i}r`, r * props.r);
+    setValue(`light${i}g`, g * props.g);
+    setValue(`light${i}b`, b * props.b);
+  }
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   const renderer = new Renderer(document.getElementById('output'));
 
   const fastRender = () => renderer.render(false);
   const fullRender = () => setTimeout(() => renderer.render(true), 0);
+  const fastLightGroup = () => {
+    updateLights();
+    fastRender();
+  };
+  const fullLightGroup = () => {
+    updateLights();
+    fullRender();
+  };
   const fastStencil = () => {
-    renderStencil(false);
-    renderer.updateStencil(stencilC);
-    renderer.render(false);
+    renderer.updateStencil(renderStencil(false));
+    fastRender();
   };
   const fullStencil = () => {
-    renderStencil(true);
-    renderer.updateStencil(stencilC);
-    setTimeout(() => renderer.render(true), 0);
+    renderer.updateStencil(renderStencil(true));
+    fullRender();
   };
 
   for (const i of document.getElementsByTagName('input')) {
@@ -375,13 +439,17 @@ window.addEventListener('DOMContentLoaded', () => {
         i.addEventListener('input', fastStencil);
         i.addEventListener('change', fullStencil);
         break;
-      case 'display':
+      case 'light-group':
+        i.addEventListener('input', fastLightGroup);
+        i.addEventListener('change', fullLightGroup);
+        break;
       default:
         i.addEventListener('input', fastRender);
         i.addEventListener('change', fullRender);
     }
   }
 
+  updateLights();
   renderDust();
   renderer.updateDust(dust, dustS);
   fullStencil();
