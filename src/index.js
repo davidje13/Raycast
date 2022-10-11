@@ -118,106 +118,130 @@ class Renderer extends GLContext {
     this.program = this.linkVertexFragmentProgram(
       `#version 300 es
       precision mediump float;
+
       uniform vec2 fov;
+      uniform vec3 origin;
+      uniform vec3 light;
+      uniform vec2 stencilLow;
+      uniform vec2 stencilHigh;
+
       in vec2 v;
+
       out vec2 p;
+      flat out float A;
+      flat out vec2 lbound;
+      flat out vec2 ubound;
+      flat out int inside;
+
       void main(void) {
         p = v * fov;
+        lbound = stencilLow - light.xy;
+        ubound = stencilHigh - light.xy;
+        A = 1.0 - origin.z / light.z;
+        vec2 s = origin.xy - light.xy;
+        inside = (
+          all(greaterThan(s, lbound.xy * A)) &&
+          all(lessThan(s, ubound.xy * A))
+        ) ? 1 : 0;
         gl_Position = vec4(v, 0.0, 1.0);
       }`,
 
       `#version 300 es
       precision mediump float;
-      const float inf = 1e38;
-      const float e = 1e-6;
+
       uniform sampler2D stencil;
       uniform sampler2D dust;
       uniform vec3 origin;
       uniform mat3 view;
-      uniform vec3 stencilLow;
-      uniform vec3 stencilHigh;
-      uniform float ilightz;
       uniform int steps;
       uniform float ifog;
+      uniform vec3 light;
       uniform vec3 lightcol;
+      uniform float cutoutDepth;
+
       in vec2 p;
+      flat in float A;
+      flat in vec2 lbound;
+      flat in vec2 ubound;
+      flat in int inside;
+
       out vec4 col;
-      float checkRangeLow(float current, float A, float B, vec3 ray, float t) {
-        if (t < 0.0 || t > current) {
-          return current;
-        }
-        vec2 m = vec2(A - B * t, 1.0);
-        vec3 s = origin + ray * t;
-        if (
-          all(greaterThanEqual(s, vec3(stencilLow.xy, 0.0) * m.xxy - e)) &&
-          all(lessThanEqual(s, stencilHigh * m.xxy + e))
-        ) {
-          return t;
-        }
-        return current;
+
+      bool checkX(float B, vec3 ray, float t) {
+        float m = A - B * t;
+        float s = origin.x + ray.x * t - light.x;
+        return (s > lbound.x * m && s < ubound.x * m);
       }
-      float checkRangeHigh(float current, float tmin, float t) {
-        if (t > tmin && t < current) {
-          return t;
-        }
-        return current;
+
+      bool checkY(float B, vec3 ray, float t) {
+        float m = A - B * t;
+        float s = origin.y + ray.y * t - light.y;
+        return (s > lbound.y * m && s < ubound.y * m);
       }
+
       void main(void) {
         float inclination = length(p);
-        vec3 ray = view * -vec3(
-          sin(inclination) * p / inclination,
-          cos(inclination)
-        );
-        vec3 surface = ray.z >= 0.0 ? vec3(0.0) : texture(stencil, (origin.xy - ray.xy * origin.z / ray.z) * 0.5 + 0.5).xyz;
-        float A = 1.0 - origin.z * ilightz; // constant
-        float B = ray.z * ilightz;
-        float tl = (A * stencilLow.x - origin.x) / (B * stencilLow.x + ray.x);
-        float tr = (A * stencilHigh.x - origin.x) / (B * stencilHigh.x + ray.x);
-        float tb = (A * stencilLow.y - origin.y) / (B * stencilLow.y + ray.y);
-        float tt = (A * stencilHigh.y - origin.y) / (B * stencilHigh.y + ray.y);
-        float tn = (stencilHigh.z - origin.z) / ray.z;
-        float tf = ((surface == vec3(0.0) ? 0.0 : stencilLow.z) - origin.z) / ray.z;
+        vec3 ray = view * -vec3(sin(inclination) * p / inclination, cos(inclination));
+        float B = ray.z / light.z;
 
-        float tmin = checkRangeLow(inf, A, B, ray, 0.0);
-        tmin = checkRangeLow(tmin, A, B, ray, min(tl, tr));
-        tmin = checkRangeLow(tmin, A, B, ray, min(tt, tb));
-        tmin = checkRangeLow(tmin, A, B, ray, tn);
-        float tmax = checkRangeHigh(inf, tmin, tl);
-        tmax = checkRangeHigh(tmax, tmin, tr);
-        tmax = checkRangeHigh(tmax, tmin, tt);
-        tmax = checkRangeHigh(tmax, tmin, tb);
-        tmax = checkRangeHigh(tmax, tmin, tn);
-        tmax = checkRangeHigh(tmax, tmin, tf);
-        if (tmax == inf) {
-          col = vec4(0.0, 0.0, 0.0, 1.0);
-          return;
+        vec3 surface;
+        float tf;
+        if (ray.z < 0.0) {
+          surface = texture(stencil, (origin.xy - origin.z * ray.xy / ray.z) * 0.5 + 0.5).xyz;
+          tf = ((surface == vec3(0.0) ? 0.0 : cutoutDepth) - origin.z) / ray.z;
+        } else {
+          surface = vec3(0.0);
+          tf = 1000.0; // max render depth when looking up through flare
         }
-        // (tmax - tmin) * 0.1 + 0.5
+
+        vec2 liml = (A * lbound + light.xy - origin.xy) / (B * lbound + ray.xy);
+        vec2 limu = (A * ubound + light.xy - origin.xy) / (B * ubound + ray.xy);
+
+        float tmin;
+        if (inside != 0) {
+          tmin = 0.0;
+        } else {
+          tmin = tf;
+          if (liml.x > 0.0 && liml.x < tmin && checkY(B, ray, liml.x)) { tmin = liml.x; }
+          if (liml.y > 0.0 && liml.y < tmin && checkX(B, ray, liml.y)) { tmin = liml.y; }
+          if (limu.x > 0.0 && limu.x < tmin && checkY(B, ray, limu.x)) { tmin = limu.x; }
+          if (limu.y > 0.0 && limu.y < tmin && checkX(B, ray, limu.y)) { tmin = limu.y; }
+        }
+        float tmax = tf;
+        if (liml.x > tmin && liml.x < tmax) { tmax = liml.x; }
+        if (liml.y > tmin && liml.y < tmax) { tmax = liml.y; }
+        if (limu.x > tmin && limu.x < tmax) { tmax = limu.x; }
+        if (limu.y > tmin && limu.y < tmax) { tmax = limu.y; }
+
+        //col = vec4(vec3(tmax - tmin) * 0.1 + 0.5, 1.0);return;
+
         vec3 accum = vec3(0.0);
         float remaining = pow(ifog, tmin);
-        float step = (tmax - tmin) / float(steps);
-        float ifogstep = pow(ifog, step);
-        float t = tmin;
-        for (int i = 0; i < steps; ++i) {
-          float m = 1.0 / (A - B * t);
-          vec3 pos = origin + ray * t;
-          vec2 s = pos.xy * m * 0.5 + 0.5;
-          vec3 v = pos.z <= 0.0 ? surface : texture(stencil, s).xyz;
-          if (v != vec3(0.0)) {
-            float d = texture(dust, s).x;
-            if (pos.z < d) {
-              // cheat: assume z ~= distance from surface for light attenuation due to fog
-              accum += (
-                v // light through stencil
-                * pow(ifog, pos.z) // approx. attenuation due to fog on path of light
-                * m * m // attenuation due to dispersal of light
-                * (1.0 - ifogstep) // integral of fog over distance travelled by ray this step
-                * remaining // integral of fog over ray so far
-              );
+
+        if (tmax > tmin) {
+          float step = (tmax - tmin) / float(steps);
+          float ifogstep = pow(ifog, step);
+          float t = tmin;
+          for (int i = 0; i < steps; ++i) {
+            float m = 1.0 / (A - B * t);
+            vec3 pos = origin + ray * t;
+            vec3 P = pos - light;
+            vec2 s = (P.xy * m + light.xy) * 0.5 + 0.5;
+            vec3 v = pos.z > 0.0 ? texture(stencil, s).xyz : surface;
+            if (v != vec3(0.0)) {
+              float d = texture(dust, s).x;
+              if (pos.z < d) {
+                accum += (
+                  v // light through stencil
+                  * (pos.z > 0.0 ? pow(ifog, length(P) * (1.0 + light.z / P.z)) * m * m : 1.0) // attenuation due to fog on path of light & dispersal of light
+                  * (1.0 - ifogstep) // integral of fog over distance travelled by ray this step
+                  * remaining // integral of fog over ray so far
+                );
+              }
             }
+            remaining *= ifogstep;
+            t += step;
           }
-          remaining *= ifogstep;
-          t += step;
         }
 
         col = vec4((accum + surface * remaining) * lightcol, 1.0);
@@ -231,7 +255,8 @@ class Renderer extends GLContext {
     this.programView = this.ctx.getUniformLocation(this.program, 'view');
     this.programStencilLow = this.ctx.getUniformLocation(this.program, 'stencilLow');
     this.programStencilHigh = this.ctx.getUniformLocation(this.program, 'stencilHigh');
-    this.programILightZ = this.ctx.getUniformLocation(this.program, 'ilightz');
+    this.programCutoutDepth = this.ctx.getUniformLocation(this.program, 'cutoutDepth');
+    this.programLight = this.ctx.getUniformLocation(this.program, 'light');
     this.programSteps = this.ctx.getUniformLocation(this.program, 'steps');
     this.programIFog = this.ctx.getUniformLocation(this.program, 'ifog');
     this.programLightCol = this.ctx.getUniformLocation(this.program, 'lightcol');
@@ -289,6 +314,13 @@ class Renderer extends GLContext {
 
     const fov = getValue('fov') * 0.5 * Math.PI / 180;
 
+    const lights = [];
+    for (let i = 1; i <= 5; ++i) {
+      if (document.getElementsByName(`light${i}`)[0].checked) {
+        lights.push(i);
+      }
+    }
+
     this.ctx.useProgram(this.program);
     this.ctx.activeTexture(GL.TEXTURE0);
     this.ctx.bindTexture(GL.TEXTURE_2D, this.stencil);
@@ -303,27 +335,20 @@ class Renderer extends GLContext {
       view[4], view[5], view[6],
       view[8], view[9], view[10],
     ]);
-    this.ctx.uniform3f(this.programStencilLow, minStencilX, minStencilY, minDustZ);
-    this.ctx.uniform3f(this.programStencilHigh, maxStencilX, maxStencilY, maxDustZ);
-    this.ctx.uniform1i(this.programSteps, full ? 300 : 30);
+    this.ctx.uniform2f(this.programStencilLow, minStencilX, minStencilY);
+    this.ctx.uniform2f(this.programStencilHigh, maxStencilX, maxStencilY);
+    this.ctx.uniform1f(this.programCutoutDepth, minDustZ);
+    this.ctx.uniform1i(this.programSteps, full ? 300 : Math.ceil(120 / lights.length));
     this.ctx.uniform1f(this.programIFog, 1 - getValue('fog'));
 
-    let first = true;
+    this.ctx.blendFunc(GL.ONE, GL.ONE);
     this.ctx.disable(GL.BLEND);
-    for (let i = 1; i <= 5; ++i) {
-      if (!document.getElementsByName(`light${i}`)[0].checked) {
-        continue;
-      }
-
-      this.ctx.uniform1f(this.programILightZ, 1.0 / (getValue(`light${i}z`)));
+    for (const i of lights) {
+      this.ctx.uniform3f(this.programLight, getValue(`light${i}x`), getValue(`light${i}y`), getValue(`light${i}z`));
       this.ctx.uniform3f(this.programLightCol, getValue(`light${i}r`), getValue(`light${i}g`), getValue(`light${i}b`));
       this.drawQuad(this.programV);
 
-      if (first) {
-        first = false;
-        this.ctx.blendFunc(GL.ONE, GL.ONE);
-        this.ctx.enable(GL.BLEND);
-      }
+      this.ctx.enable(GL.BLEND);
     }
   }
 }

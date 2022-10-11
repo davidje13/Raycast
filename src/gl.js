@@ -1,3 +1,5 @@
+'use strict';
+
 const GL = WebGL2RenderingContext;
 
 class GLContext {
