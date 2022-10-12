@@ -380,9 +380,10 @@ function updateLights() {
   const y = getValue('lightCy');
   const z1 = getValue('lightCz1');
   const z2 = getValue('lightCz2');
-  const r = getValue('lightCr');
-  const g = getValue('lightCg');
-  const b = getValue('lightCb');
+  const exposure = getValue('lightCe');
+  const r = getValue('lightCr') * exposure;
+  const g = getValue('lightCg') * exposure;
+  const b = getValue('lightCb') * exposure;
 
   if (z1 === z2) {
     document.getElementsByName('light1')[0].checked = true;
