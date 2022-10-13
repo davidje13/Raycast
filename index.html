@@ -2,9 +2,14 @@
 <html lang="en">
   <head>
     <title>Raycast</title>
+    <script src="src/util.js"></script>
     <script src="src/math.js"></script>
     <script src="src/gl.js"></script>
+    <script src="src/ui.js"></script>
     <script src="src/logo.js"></script>
+    <script src="src/Renderer.js"></script>
+    <script src="src/StencilRenderer.js"></script>
+    <script src="src/DustRenderer.js"></script>
     <script src="src/index.js"></script>
     <link rel="stylesheet" href="src/style.css" />
   </head>
@@ -13,8 +18,8 @@
     <form action="#">
       <fieldset>
         <legend>Animation</legend>
-        <label>Frame <input name="frame" type="range" value="1" min="0" max="1" step="any" data-target="stencil" /></label>
-        <label>Trace <input name="trace" type="range" value="0.25" min="0" max="1" step="any" data-target="stencil" /></label>
+        <label>Frame <input name="frame" type="range" value="1" min="0" max="1" step="any" /></label>
+        <label>Trace <input name="trace" type="range" value="0.25" min="0" max="1" step="any" /></label>
       </fieldset>
       <fieldset>
         <legend>Scene</legend>
