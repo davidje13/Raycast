@@ -230,8 +230,6 @@ class Renderer extends GLContext {
     const totalSteps = config.lightQuality;
     const maxStepsPerLight = 500;
 
-    const view = makeViewMatrix(config.view.camera, config.view.focus, config.view.up);
-
     this.ctx.useProgram(this.program);
     this.ctx.activeTexture(GL.TEXTURE0);
     this.ctx.bindTexture(GL.TEXTURE_2D, this.stencil);
@@ -244,7 +242,6 @@ class Renderer extends GLContext {
       config.view.fov * 0.5,
       -config.view.fov * 0.5 * this.height / this.width,
     );
-    this.ctx.uniformMatrix3fv(this.programView, false, mat4xyz(view));
     this.ctx.uniform2f(this.programStencilLow, this.stencilInfo.minx, this.stencilInfo.miny);
     this.ctx.uniform2f(this.programStencilHigh, this.stencilInfo.maxx, this.stencilInfo.maxy);
     this.ctx.uniform1f(this.programCutoutDepth, this.dustInfo.minz);
@@ -254,25 +251,30 @@ class Renderer extends GLContext {
     if (stereoscopic) {
       const sz = this.resize(this.width * 2, this.height, config.resolution);
       this.ctx.viewport(0, 0, sz.w / 2, sz.h);
-      this._renderEye(config, view, -eyeSep * 0.5);
+      this._renderEye(config, -eyeSep * 0.5);
       this.ctx.viewport(sz.w / 2, 0, sz.w / 2, sz.h);
-      this._renderEye(config, view, eyeSep * 0.5);
+      this._renderEye(config, eyeSep * 0.5);
     } else {
       const sz = this.resize(this.width, this.height, config.resolution);
       this.ctx.viewport(0, 0, sz.w, sz.h);
-      this._renderEye(config, view, 0);
+      this._renderEye(config, 0);
     }
 
     this.latestConfig = config;
   }
 
-  _renderEye(config, view, eyeShift) {
-    this.ctx.uniform3f(
-      this.programOrigin,
-      view[12] + view[0] * eyeShift,
-      view[13] + view[1] * eyeShift,
-      view[14] + view[2] * eyeShift,
-    );
+  _renderEye(config, eyeShift) {
+    let view = makeViewMatrix(config.view.camera, config.view.focus, config.view.up);
+    if (eyeShift) {
+      view = makeViewMatrix({
+        x: config.view.camera.x + view[0] * eyeShift,
+        y: config.view.camera.y + view[1] * eyeShift,
+        z: config.view.camera.z + view[2] * eyeShift,
+      }, config.view.focus, config.view.up);
+    }
+    this.ctx.uniformMatrix3fv(this.programView, false, mat4xyz(view));
+    this.ctx.uniform3f(this.programOrigin, view[12], view[13], view[14]);
+
     this.ctx.blendFunc(GL.ONE, GL.ONE);
     this.ctx.disable(GL.BLEND);
     for (const light of config.lights) {
