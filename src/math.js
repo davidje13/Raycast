@@ -21,6 +21,12 @@ const cross3 = (v1, v2) => ({
   z: v1.x * v2.y - v1.y * v2.x,
 });
 
+const mat4xyz = (m) => [
+  m[0], m[1], m[2],
+  m[4], m[5], m[6],
+  m[8], m[9], m[10],
+];
+
 function makeViewMatrix(eye, target, up) {
   const z = norm3(sub3(eye, target));
   const x = norm3(cross3(up, z));

@@ -140,6 +140,7 @@ class Renderer extends GLContext {
       antialias: false,
       preserveDrawingBuffer: false,
     });
+    this.resize(width, height, 1);
 
     this.width = width;
     this.height = height;
@@ -224,7 +225,8 @@ class Renderer extends GLContext {
       );
     }
 
-    this.resize(this.width, this.height, config.resolution);
+    const eyeSep = config.view.eyeSeparation;
+    const stereoscopic = Boolean(eyeSep);
     const totalSteps = config.lightQuality;
     const maxStepsPerLight = 500;
 
@@ -239,21 +241,38 @@ class Renderer extends GLContext {
     this.ctx.uniform1i(this.programDust, 1);
     this.ctx.uniform2f(
       this.programFOV,
-      config.view.fov,
-      -config.view.fov * this.height / this.width,
+      config.view.fov * 0.5,
+      -config.view.fov * 0.5 * this.height / this.width,
     );
-    this.ctx.uniform3f(this.programOrigin, view[12], view[13], view[14]);
-    this.ctx.uniformMatrix3fv(this.programView, false, [
-      view[0], view[1], view[2],
-      view[4], view[5], view[6],
-      view[8], view[9], view[10],
-    ]);
+    this.ctx.uniformMatrix3fv(this.programView, false, mat4xyz(view));
     this.ctx.uniform2f(this.programStencilLow, this.stencilInfo.minx, this.stencilInfo.miny);
     this.ctx.uniform2f(this.programStencilHigh, this.stencilInfo.maxx, this.stencilInfo.maxy);
     this.ctx.uniform1f(this.programCutoutDepth, this.dustInfo.minz);
     this.ctx.uniform1i(this.programSteps, Math.min(Math.ceil(totalSteps / config.lights.length), maxStepsPerLight));
     this.ctx.uniform1f(this.programIFog, 1 - config.fog);
 
+    if (stereoscopic) {
+      const sz = this.resize(this.width * 2, this.height, config.resolution);
+      this.ctx.viewport(0, 0, sz.w / 2, sz.h);
+      this._renderEye(config, view, -eyeSep * 0.5);
+      this.ctx.viewport(sz.w / 2, 0, sz.w / 2, sz.h);
+      this._renderEye(config, view, eyeSep * 0.5);
+    } else {
+      const sz = this.resize(this.width, this.height, config.resolution);
+      this.ctx.viewport(0, 0, sz.w, sz.h);
+      this._renderEye(config, view, 0);
+    }
+
+    this.latestConfig = config;
+  }
+
+  _renderEye(config, view, eyeShift) {
+    this.ctx.uniform3f(
+      this.programOrigin,
+      view[12] + view[0] * eyeShift,
+      view[13] + view[1] * eyeShift,
+      view[14] + view[2] * eyeShift,
+    );
     this.ctx.blendFunc(GL.ONE, GL.ONE);
     this.ctx.disable(GL.BLEND);
     for (const light of config.lights) {
@@ -263,7 +282,5 @@ class Renderer extends GLContext {
 
       this.ctx.enable(GL.BLEND);
     }
-
-    this.latestConfig = config;
   }
 }

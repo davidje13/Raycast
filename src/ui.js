@@ -84,7 +84,8 @@ function getConfig(full) {
     lights,
     fog: getValue('fog'),
     view: {
-      fov: getValue('fov') * DEG2RAD * 0.5,
+      fov: getValue('fov') * DEG2RAD,
+      eyeSeparation: getValue('eyesep'),
       camera: {
         x: getValue('camerax'),
         y: getValue('cameray'),

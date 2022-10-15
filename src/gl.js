@@ -17,14 +17,13 @@ class GLContext {
   resize(width, height, dpr) {
     const w = (width * dpr)|0;
     const h = (height * dpr)|0;
-    if (this.ctx.canvas.width === w && this.ctx.canvas.height === h) {
-      return;
+    if (this.ctx.canvas.width !== w || this.ctx.canvas.height !== h) {
+      this.ctx.canvas.width = w;
+      this.ctx.canvas.height = h;
+      this.ctx.canvas.style.width = `${width}px`;
+      this.ctx.canvas.style.height = `${height}px`;
     }
-    this.ctx.canvas.width = w;
-    this.ctx.canvas.height = h;
-    this.ctx.canvas.style.width = `${width}px`;
-    this.ctx.canvas.style.height = `${height}px`;
-    this.ctx.viewport(0, 0, w, h);
+    return { w, h };
   }
 
   createBuffer(data) {
