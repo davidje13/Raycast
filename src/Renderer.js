@@ -34,14 +34,15 @@ const RENDER_FRAG = `#version 300 es
 precision mediump float;
 
 uniform sampler2D stencil;
-uniform sampler2D dust;
+uniform sampler2D shadow;
 uniform vec3 origin;
 uniform mat3 view;
 uniform int steps;
 uniform float ifog;
 uniform vec3 light;
 uniform vec3 lightcol;
-uniform float cutoutDepth;
+uniform float shadowMin;
+uniform float shadowRange;
 
 in vec2 p;
 flat in float A;
@@ -72,7 +73,7 @@ void main(void) {
   float tf;
   if (ray.z < 0.0) {
     surface = texture(stencil, (origin.xy - origin.z * ray.xy / ray.z) * 0.5 + 0.5).xyz;
-    tf = ((surface == vec3(0.0) ? 0.0 : cutoutDepth) - origin.z) / ray.z;
+    tf = ((surface == vec3(0.0) ? 0.0 : min(shadowMin, 0.0)) - origin.z) / ray.z;
   } else {
     surface = vec3(0.0);
     tf = 10.0; // max render depth when looking up through flare
@@ -113,8 +114,8 @@ void main(void) {
       vec2 s = (P.xy * m + light.xy) * 0.5 + 0.5;
       vec3 v = pos.z > 0.0 ? texture(stencil, s).xyz : surface;
       if (v != vec3(0.0)) {
-        float d = texture(dust, s).x;
-        if (pos.z < d) {
+        float d = texture(shadow, s).x;
+        if (d == 1.0 || pos.z < d * shadowRange + shadowMin) {
           accum += (
             v // light through stencil
             * (pos.z > 0.0 ? pow(ifog, length(P) * (1.0 + light.z / P.z)) * m * m : 1.0) // attenuation due to fog on path of light & dispersal of light
@@ -131,8 +132,52 @@ void main(void) {
   col = vec4((accum + surface * remaining) * lightcol, 1.0);
 }`;
 
+const SHADOW_VERT = `#version 300 es
+precision mediump float;
+
+uniform vec3 light;
+uniform float minZ;
+
+in vec4 v;
+
+out vec2 uv;
+flat out float z;
+flat out float r;
+
+void main(void) {
+  uv = (vec2(ivec2(gl_VertexID / 2, gl_VertexID % 2)) - 0.5) * 2.0;
+  z = v.z - minZ;
+  r = v.w;
+  vec3 pos = v.xyz - light;
+  if (pos.z <= 0.0) {
+    gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+  } else {
+    float scale = -light.z / pos.z;
+    gl_Position = vec4((pos.xy + uv * r) * scale + light.xy, 0.0, 1.0);
+  }
+}`;
+
+const SHADOW_FRAG = `#version 300 es
+precision mediump float;
+
+uniform float depthScale;
+
+in vec2 uv;
+flat in float z;
+flat in float r;
+
+out vec4 col;
+
+void main(void) {
+  float d2 = dot(uv, uv);
+  if (d2 > 1.0) {
+    discard;
+  }
+  col = vec4(vec3((z - sqrt(1.0 - d2) * r) * depthScale), 1.0);
+}`;
+
 class Renderer extends GLContext {
-  constructor(canvas, { width, height, stencilRenderer, dustRenderer }) {
+  constructor(canvas, { width, height, shadowMapSize, dust, stencilRenderer }) {
     super(canvas, {
       alpha: false,
       depth: false,
@@ -144,9 +189,18 @@ class Renderer extends GLContext {
 
     this.width = width;
     this.height = height;
+    this.dust = dust;
+    this.shadowMapSize = shadowMapSize;
     this.stencilRenderer = stencilRenderer;
-    this.dustRenderer = dustRenderer;
+    this.shadowMaps = [];
     this.latestConfig = {};
+
+    this.quad = this.createBuffer(new Float32Array([
+      -1.0, -1.0,
+      1.0, -1.0,
+      -1.0, 1.0,
+      1.0, 1.0,
+    ]), GL.STATIC_DRAW);
 
     this.stencilInfo = null;
     this.stencil = this.ctx.createTexture();
@@ -156,29 +210,93 @@ class Renderer extends GLContext {
     this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MAG_FILTER, GL.LINEAR);
     this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MIN_FILTER, GL.LINEAR);
 
-    this.dustInfo = null;
-    this.dust = this.ctx.createTexture();
-    this.ctx.bindTexture(GL.TEXTURE_2D, this.dust);
-    this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_S, GL.CLAMP_TO_EDGE);
-    this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_T, GL.CLAMP_TO_EDGE);
-    this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MAG_FILTER, GL.NEAREST);
-    this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MIN_FILTER, GL.NEAREST);
+    // TODO: animate dust
+    const dustData = new Float32Array(dust.count * 4);
+    for (let i = 0; i < dust.count; ++ i) {
+      dustData[i * 4 + 0] = (Math.random() * 2 - 1) * dust.extent;
+      dustData[i * 4 + 1] = (Math.random() * 2 - 1) * dust.extent;
+      dustData[i * 4 + 2] = Math.random() * (dust.maxz - dust.minz) + dust.minz;
+      dustData[i * 4 + 3] = Math.random() * (dust.maxsize - dust.minsize) + dust.minsize;
+    }
+    this.dustBuffer = this.createBuffer(dustData, GL.DYNAMIC_DRAW);
 
     this.program = this.linkVertexFragmentProgram(RENDER_VERT, RENDER_FRAG);
 
     this.programStencil = this.ctx.getUniformLocation(this.program, 'stencil');
-    this.programDust = this.ctx.getUniformLocation(this.program, 'dust');
+    this.programShadow = this.ctx.getUniformLocation(this.program, 'shadow');
     this.programFOV = this.ctx.getUniformLocation(this.program, 'fov');
     this.programOrigin = this.ctx.getUniformLocation(this.program, 'origin');
     this.programView = this.ctx.getUniformLocation(this.program, 'view');
     this.programStencilLow = this.ctx.getUniformLocation(this.program, 'stencilLow');
     this.programStencilHigh = this.ctx.getUniformLocation(this.program, 'stencilHigh');
-    this.programCutoutDepth = this.ctx.getUniformLocation(this.program, 'cutoutDepth');
+    this.programShadowMin = this.ctx.getUniformLocation(this.program, 'shadowMin');
+    this.programShadowRange = this.ctx.getUniformLocation(this.program, 'shadowRange');
     this.programLight = this.ctx.getUniformLocation(this.program, 'light');
     this.programSteps = this.ctx.getUniformLocation(this.program, 'steps');
     this.programIFog = this.ctx.getUniformLocation(this.program, 'ifog');
     this.programLightCol = this.ctx.getUniformLocation(this.program, 'lightcol');
     this.programV = this.ctx.getAttribLocation(this.program, 'v');
+
+    this.shadowProgram = this.linkVertexFragmentProgram(SHADOW_VERT, SHADOW_FRAG);
+    this.shadowProgramLight = this.ctx.getUniformLocation(this.shadowProgram, 'light');
+    this.shadowProgramMinZ = this.ctx.getUniformLocation(this.shadowProgram, 'minZ');
+    this.shadowProgramDepthScale = this.ctx.getUniformLocation(this.shadowProgram, 'depthScale');
+    this.shadowProgramV = this.ctx.getAttribLocation(this.shadowProgram, 'v');
+  }
+
+  _createShadowMap() {
+    const texture = this.ctx.createTexture();
+    this.ctx.bindTexture(GL.TEXTURE_2D, texture);
+    this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_S, GL.CLAMP_TO_EDGE);
+    this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_T, GL.CLAMP_TO_EDGE);
+    this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MAG_FILTER, GL.NEAREST);
+    this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MIN_FILTER, GL.NEAREST);
+    this.ctx.texImage2D(
+      GL.TEXTURE_2D,
+      0,
+      GL.R8,
+      this.shadowMapSize,
+      this.shadowMapSize,
+      0,
+      GL.RED,
+      GL.UNSIGNED_BYTE,
+      null,
+    );
+    const buffer = this.ctx.createFramebuffer();
+    this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, buffer);
+    this.ctx.framebufferTexture2D(
+      GL.DRAW_FRAMEBUFFER,
+      GL.COLOR_ATTACHMENT0,
+      GL.TEXTURE_2D,
+      texture,
+      0
+    );
+
+    return { buffer, texture };
+  }
+
+  _updateShadowMap(shadowMap, lightPos) {
+    this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, shadowMap.buffer);
+    this.ctx.viewport(0, 0, this.shadowMapSize, this.shadowMapSize);
+    this.ctx.clearColor(1, 1, 1, 1);
+    this.ctx.clear(GL.COLOR_BUFFER_BIT);
+    this.ctx.blendEquation(GL.MIN);
+    this.ctx.blendFunc(GL.ONE, GL.ONE);
+    this.ctx.enable(GL.BLEND);
+
+    this.ctx.useProgram(this.shadowProgram);
+    this.ctx.uniform3f(this.shadowProgramLight, lightPos.x, lightPos.y, lightPos.z);
+    this.ctx.uniform1f(this.shadowProgramMinZ, this.dust.minz);
+    this.ctx.uniform1f(this.shadowProgramDepthScale, 1 / (this.dust.maxz - this.dust.minz));
+    this.ctx.bindBuffer(GL.ARRAY_BUFFER, this.dustBuffer);
+    this.ctx.enableVertexAttribArray(this.shadowProgramV);
+    this.ctx.vertexAttribDivisor(this.shadowProgramV, 4);
+    this.ctx.vertexAttribPointer(this.shadowProgramV, 4, GL.FLOAT, false, 0, 0);
+    this.ctx.drawArraysInstanced(GL.TRIANGLE_STRIP, 0, 4, this.dust.count);
+
+    this.ctx.disable(GL.BLEND);
+    this.ctx.vertexAttribDivisor(this.shadowProgramV, 0);
+    this.ctx.disableVertexAttribArray(this.shadowProgramV);
   }
 
   render(config) {
@@ -202,27 +320,15 @@ class Renderer extends GLContext {
       );
     }
     if (!deepEqual(config.lights, this.latestConfig.lights)) {
-      // TODO: render dust as shadow map per light source
-      //this.ctx.framebufferTexture2D(
-      //  GL.FRAMEBUFFER,
-      //  GL.DEPTH_ATTACHMENT,
-      //  GL.TEXTURE_2D,
-      //  this.dust,
-      //  0
-      //);
-      this.dustInfo = this.dustRenderer.render();
-      this.ctx.bindTexture(GL.TEXTURE_2D, this.dust);
-      this.ctx.texImage2D(
-        GL.TEXTURE_2D,
-        0,
-        GL.R32F,
-        this.dustInfo.size,
-        this.dustInfo.size,
-        0,
-        GL.RED,
-        GL.FLOAT,
-        this.dustInfo.data,
-      );
+      for (let i = 0; i < config.lights.length; ++i) {
+        const light = config.lights[i];
+        if (!this.shadowMaps[i] || !deepEqual(light.pos, this.latestConfig.lights?.[i]?.pos)) {
+          if (!this.shadowMaps[i]) {
+            this.shadowMaps[i] = this._createShadowMap();
+          }
+          this._updateShadowMap(this.shadowMaps[i], light.pos);
+        }
+      }
     }
 
     const eyeSep = config.view.eyeSeparation;
@@ -234,9 +340,6 @@ class Renderer extends GLContext {
     this.ctx.activeTexture(GL.TEXTURE0);
     this.ctx.bindTexture(GL.TEXTURE_2D, this.stencil);
     this.ctx.uniform1i(this.programStencil, 0);
-    this.ctx.activeTexture(GL.TEXTURE1);
-    this.ctx.bindTexture(GL.TEXTURE_2D, this.dust);
-    this.ctx.uniform1i(this.programDust, 1);
     this.ctx.uniform2f(
       this.programFOV,
       config.view.fov * 0.5,
@@ -244,9 +347,15 @@ class Renderer extends GLContext {
     );
     this.ctx.uniform2f(this.programStencilLow, this.stencilInfo.minx, this.stencilInfo.miny);
     this.ctx.uniform2f(this.programStencilHigh, this.stencilInfo.maxx, this.stencilInfo.maxy);
-    this.ctx.uniform1f(this.programCutoutDepth, this.dustInfo.minz);
+    this.ctx.uniform1f(this.programShadowMin, this.dust.minz);
+    this.ctx.uniform1f(this.programShadowRange, this.dust.maxz - this.dust.minz);
     this.ctx.uniform1i(this.programSteps, Math.min(Math.ceil(totalSteps / config.lights.length), maxStepsPerLight));
     this.ctx.uniform1f(this.programIFog, 1 - config.fog);
+    this.ctx.bindBuffer(GL.ARRAY_BUFFER, this.quad);
+    this.ctx.enableVertexAttribArray(this.programV);
+    this.ctx.vertexAttribPointer(this.programV, 2, GL.FLOAT, false, 0, 0);
+
+    this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, null);
 
     if (stereoscopic) {
       const sz = this.resize(this.width * 2, this.height, config.resolution);
@@ -259,6 +368,8 @@ class Renderer extends GLContext {
       this.ctx.viewport(0, 0, sz.w, sz.h);
       this._renderEye(config, 0);
     }
+
+    this.ctx.disableVertexAttribArray(this.programV);
 
     this.latestConfig = config;
   }
@@ -275,14 +386,22 @@ class Renderer extends GLContext {
     this.ctx.uniformMatrix3fv(this.programView, false, mat4xyz(view));
     this.ctx.uniform3f(this.programOrigin, view[12], view[13], view[14]);
 
+    this.ctx.blendEquation(GL.FUNC_ADD);
     this.ctx.blendFunc(GL.ONE, GL.ONE);
     this.ctx.disable(GL.BLEND);
-    for (const light of config.lights) {
-      this.ctx.uniform3f(this.programLight, light.x, light.y, light.z);
-      this.ctx.uniform3f(this.programLightCol, light.r, light.g, light.b);
-      this.drawQuad(this.programV);
+
+    this.ctx.activeTexture(GL.TEXTURE1);
+    this.ctx.uniform1i(this.programShadow, 1);
+
+    for (let i = 0; i < config.lights.length; ++i) {
+      const light = config.lights[i];
+      this.ctx.uniform3f(this.programLight, light.pos.x, light.pos.y, light.pos.z);
+      this.ctx.uniform3f(this.programLightCol, light.col.r, light.col.g, light.col.b);
+      this.ctx.bindTexture(GL.TEXTURE_2D, this.shadowMaps[i].texture);
+      this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
 
       this.ctx.enable(GL.BLEND);
     }
+    this.ctx.disable(GL.BLEND);
   }
 }

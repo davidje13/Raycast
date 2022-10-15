@@ -64,12 +64,16 @@ function getConfig(full) {
   for (let i = 1; i <= LIGHT_PROPORTIONS.length; ++i) {
     if (document.getElementsByName(`light${i}`)[0].checked) {
       lights.push({
-        x: getValue(`light${i}x`),
-        y: getValue(`light${i}y`),
-        z: Math.max(-10000, -1 / Math.tan(getValue(`light${i}z`) * DEG2RAD)),
-        r: getValue(`light${i}r`),
-        g: getValue(`light${i}g`),
-        b: getValue(`light${i}b`),
+        pos: {
+          x: getValue(`light${i}x`),
+          y: getValue(`light${i}y`),
+          z: Math.max(-10000, -1 / Math.tan(getValue(`light${i}z`) * DEG2RAD)),
+        },
+        col: {
+          r: getValue(`light${i}r`),
+          g: getValue(`light${i}g`),
+          b: getValue(`light${i}b`),
+        },
       });
     }
   }
