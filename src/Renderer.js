@@ -1,5 +1,22 @@
 'use strict';
 
+const RANDOM_FN = `
+const uint s = 0x9E3779B9u;
+const uint k1 = 0xA341316Cu;
+const uint k2 = 0xC8013EA4u;
+const uint k3 = 0xAD90777Du;
+const uint k4 = 0x7E95761Eu;
+
+// thanks, https://gaim.umbc.edu/2010/07/01/gpu-random-numbers/
+vec2 random(uvec2 seed) {
+  uvec2 v = seed;
+  ${`
+  v.x += ((v.y << 4u) + k1) ^ (v.y + s) ^ ((v.y >> 5u) + k2);
+  v.y += ((v.x << 4u) + k3) ^ (v.x + s) ^ ((v.x >> 5u) + k4);
+  `.repeat(3)}
+  return vec2(v & 0xFFFFu) / 65535.0;
+}`;
+
 const RENDER_VERT = `#version 300 es
 precision mediump float;
 
@@ -51,6 +68,8 @@ flat in vec2 ubound;
 flat in int inside;
 
 out vec4 col;
+
+${RANDOM_FN}
 
 bool checkX(float B, vec3 ray, float t) {
   float m = A - B * t;
@@ -106,7 +125,8 @@ void main(void) {
   if (tmax > tmin) {
     float step = (tmax - tmin) / float(steps);
     float ifogstep = pow(ifog, step);
-    float t = tmin;
+    float dither = random(uvec2(gl_FragCoord)).x;
+    float t = tmin + step * dither;
     for (int i = 0; i < steps; ++i) {
       float m = 1.0 / (A - B * t);
       vec3 pos = origin + ray * t;
@@ -143,21 +163,7 @@ in vec4 oldVel;
 out vec4 newPos;
 out vec4 newVel;
 
-const uint s = 0x9E3779B9u;
-const uint k1 = 0xA341316Cu;
-const uint k2 = 0xC8013EA4u;
-const uint k3 = 0xAD90777Du;
-const uint k4 = 0x7E95761Eu;
-
-// thanks, https://gaim.umbc.edu/2010/07/01/gpu-random-numbers/
-vec2 random(uvec2 seed) {
-  uvec2 v = seed;
-  ${`
-  v.x += ((v.y << 4u) + k1) ^ (v.y + s) ^ ((v.y >> 5u) + k2);
-  v.y += ((v.x << 4u) + k3) ^ (v.x + s) ^ ((v.x >> 5u) + k4);
-  `.repeat(3)}
-  return vec2(v & 0xFFFFu) / 65535.0;
-}
+${RANDOM_FN}
 
 void main(void) {
   if (oldPos.w == 0.0) {
