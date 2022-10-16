@@ -72,13 +72,19 @@ function renderLogo(ctx, size, progress, trace) {
   const traceCol = `#${traceC}${traceC}${traceC}`;
   const pointCol = '#FFFFFF';
 
-  let total = progress * (494 + 55 + 14 + 12);
-  drawLines(ctx, [path1], 9, total, traceCol, pointCol);
+  let total = progress * (5 + 20 + 494 + 63);
+  if (!total) {
+    return;
+  }
+  const dotSize = Math.min(Math.pow(total / 5, 0.25) * 9, 9)|0;
+  total -= 5;
+  total -= 20;
+  drawLines(ctx, [path1], dotSize, Math.max(total, 0), traceCol, pointCol);
 
   total -= 494;
   drawLines(ctx, [path2a, path2b], 8, total, traceCol, pointCol);
 
-  total -= 55;
+  total -= 29;
   drawLines(ctx, [path3a, path3b], 4, total, traceCol, pointCol);
 
   total -= 14;

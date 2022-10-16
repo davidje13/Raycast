@@ -34,7 +34,6 @@ class StencilRenderer {
     }
     return {
       canvas: this.canvas,
-      size,
       minx: (minX - 1) * 2 / size - 1,
       miny: (minY - 1) * 2 / size - 1,
       maxx: (maxX + 1) * 2 / size - 1,

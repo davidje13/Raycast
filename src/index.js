@@ -19,4 +19,42 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   buildUI((config) => renderer.render(config));
+
+  let playing = false;
+  let frame = 0;
+  const totalFrames = 1000;
+  let baseConfig = {};
+  document.getElementById('play').addEventListener('click', () => {
+    playing = !playing;
+    if (playing) {
+      frame = 0;
+      // TODO: reset dust
+      baseConfig = getConfig(true);
+      requestAnimationFrame(stepAnimation);
+    }
+  });
+  function stepAnimation() {
+    if (!playing) {
+      return;
+    }
+    if (frame % 2 === 0) {
+      // TODO: uncouple dust from frames, interpolate dust if using more frames than updates
+      renderer._stepDust();
+    }
+    renderer.render({
+      ...baseConfig,
+      stencil: {
+        ...baseConfig.stencil,
+        frame: frame / totalFrames,
+      },
+    });
+    const imageData = renderer.getImage(); // force sync flush (TODO: record to video)
+    document.getElementById('outputImg').src = imageData;
+    if (frame >= totalFrames) {
+      playing = false;
+      return;
+    }
+    ++frame;
+    requestAnimationFrame(stepAnimation);
+  }
 });

@@ -170,7 +170,7 @@ void main(void) {
     vec2 r3 = random(uvec2(0x18273645u, gl_VertexID));
     vec2 r4 = random(uvec2(0x54637281u, gl_VertexID));
     newPos = vec4(r1, r2) * (ubound - lbound) + lbound;
-    newVel = vec4(r3, r4) * 0.01;
+    newVel = (vec4(r3, r4) - 0.5) * 0.01;
   } else {
     newPos = oldPos + vec4(oldVel.xyz, 0.0);
     newVel = oldVel;
@@ -252,6 +252,14 @@ class Renderer extends GLContext {
     this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_WRAP_T, GL.CLAMP_TO_EDGE);
     this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MAG_FILTER, GL.LINEAR);
     this.ctx.texParameteri(GL.TEXTURE_2D, GL.TEXTURE_MIN_FILTER, GL.LINEAR);
+    // https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_texstorage_to_create_textures
+    this.ctx.texStorage2D(
+      GL.TEXTURE_2D,
+      1,
+      GL.RGBA8, // https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#some_formats_e.g._rgb_may_be_emulated
+      this.stencilRenderer.size,
+      this.stencilRenderer.size,
+    );
 
     this.dustProgram = this.linkVertexFragmentProgram(DUST_VERT, NOOP_FRAG, ['newPos', 'newVel'], GL.INTERLEAVED_ATTRIBS);
     this.dustProgramLBound = this.ctx.getUniformLocation(this.dustProgram, 'lbound');
@@ -390,21 +398,13 @@ class Renderer extends GLContext {
     if (!deepEqual(config.stencil, this.latestConfig.stencil)) {
       this.stencilInfo = this.stencilRenderer.render(config.stencil);
       this.ctx.bindTexture(GL.TEXTURE_2D, this.stencil);
-      // https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_texstorage_to_create_textures
-      this.ctx.texStorage2D(
-        GL.TEXTURE_2D,
-        1,
-        GL.RGBA8, // https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#some_formats_e.g._rgb_may_be_emulated
-        this.stencilInfo.size,
-        this.stencilInfo.size,
-      );
       this.ctx.texSubImage2D(
         GL.TEXTURE_2D,
         0,
         0,
         0,
-        this.stencilInfo.size,
-        this.stencilInfo.size,
+        this.stencilRenderer.size,
+        this.stencilRenderer.size,
         GL.RGBA,
         GL.UNSIGNED_BYTE,
         this.stencilInfo.canvas.transferToImageBitmap(),
@@ -508,5 +508,9 @@ class Renderer extends GLContext {
       this.ctx.enable(GL.BLEND);
     }
     this.ctx.disable(GL.BLEND);
+  }
+
+  getImage() {
+    return this.ctx.canvas.toDataURL('image/png');
   }
 }
