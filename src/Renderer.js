@@ -117,15 +117,13 @@ void main(void) {
   if (limu.x > tmin && limu.x < tmax) { tmax = limu.x; }
   if (limu.y > tmin && limu.y < tmax) { tmax = limu.y; }
 
-  //col = vec4(vec3(tmax - tmin) * 0.1 + 0.5, 1.0);return;
-
   vec3 accum = vec3(0.0);
   float remaining = pow(ifog, tmin);
 
   if (tmax > tmin) {
     float step = (tmax - tmin) / float(steps);
     float ifogstep = pow(ifog, step);
-    float dither = random(uvec2(gl_FragCoord)).x;
+    float dither = random(uvec2(gl_FragCoord.xy)).x;
     float t = tmin + step * dither;
     for (int i = 0; i < steps; ++i) {
       float m = 1.0 / (A - B * t);
@@ -469,13 +467,26 @@ class Renderer extends GLContext {
   }
 
   _renderEye(config, eyeShift) {
+    if (!config.lights.length) {
+      this.ctx.clearColor(0, 0, 0, 1);
+      this.ctx.clear(GL.COLOR_BUFFER_BIT);
+      return;
+    }
     let view = makeViewMatrix(config.view.camera, config.view.focus, config.view.up);
     if (eyeShift) {
-      view = makeViewMatrix({
-        x: config.view.camera.x + view[0] * eyeShift,
-        y: config.view.camera.y + view[1] * eyeShift,
-        z: config.view.camera.z + view[2] * eyeShift,
-      }, config.view.focus, config.view.up);
+      view = makeViewMatrix(
+        {
+          x: config.view.camera.x + view[0] * eyeShift,
+          y: config.view.camera.y + view[1] * eyeShift,
+          z: config.view.camera.z + view[2] * eyeShift,
+        },
+        config.view.focus,
+        {
+          x: view[4],
+          y: view[5],
+          z: view[6],
+        },
+      );
     }
     this.ctx.uniformMatrix3fv(this.programView, false, mat4xyz(view));
     this.ctx.uniform3f(this.programOrigin, view[12], view[13], view[14]);
