@@ -19,43 +19,38 @@ class GLContext {
     return { w, h };
   }
 
-  createBuffer(data, mode) {
-    const buffer = this.ctx.createBuffer();
-    this.ctx.bindBuffer(GL.ARRAY_BUFFER, buffer);
-    this.ctx.bufferData(GL.ARRAY_BUFFER, data, mode);
-    return buffer;
-  }
-
   compileShader(type, src) {
     const shader = this.ctx.createShader(type);
     this.ctx.shaderSource(shader, src);
     this.ctx.compileShader(shader);
-    if (!this.ctx.getShaderParameter(shader, GL.COMPILE_STATUS)) {
-      throw new Error(this.ctx.getShaderInfoLog(shader));
-    }
     return shader;
   }
 
-  linkProgram(...shaders) {
+  linkProgram(shaders, feedbackVaryings, feedbackMode) {
+    // https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#dont_check_shader_compile_status_unless_linking_fails
     const program = this.ctx.createProgram();
     for (const shader of shaders) {
       this.ctx.attachShader(program, shader);
     }
-    this.ctx.linkProgram(program);
-    if (!this.ctx.getProgramParameter(program, GL.LINK_STATUS)) {
-      throw new Error(this.ctx.getProgramInfoLog(program));
+    if (feedbackVaryings) {
+      this.ctx.transformFeedbackVaryings(program, feedbackVaryings, feedbackMode);
     }
+    this.ctx.linkProgram(program);
     this.ctx.validateProgram(program);
-    if (!this.ctx.getProgramParameter(program, GL.VALIDATE_STATUS)) {
-      throw new Error(this.ctx.getProgramInfoLog(program));
+    if (
+      !this.ctx.getProgramParameter(program, GL.LINK_STATUS) ||
+      !this.ctx.getProgramParameter(program, GL.VALIDATE_STATUS)
+    ) {
+      const logs = shaders.map((s) => this.ctx.getShaderInfoLog(s));
+      throw new Error(logs.join('\n\n') + '\n\n' + this.ctx.getProgramInfoLog(program));
     }
     return program;
   }
 
-  linkVertexFragmentProgram(vertex, fragment) {
-    return this.linkProgram(
+  linkVertexFragmentProgram(vertex, fragment, feedbackVaryings, feedbackMode) {
+    return this.linkProgram([
       this.compileShader(GL.VERTEX_SHADER, vertex),
       this.compileShader(GL.FRAGMENT_SHADER, fragment),
-    );
+    ], feedbackVaryings, feedbackMode);
   }
 }

@@ -111,10 +111,10 @@ function getConfig(full) {
 
 function buildUI(callback) {
   let tm = null;
-  const configInput = () => callback(getConfig(false), false);
+  const configInput = () => callback(getConfig(false));
   const configChange = () => {
     clearTimeout(tm);
-    tm = setTimeout(() => callback(getConfig(true), true), 0);
+    tm = setTimeout(() => callback(getConfig(true)), 0);
   };
 
   const lightGroupInput = () => {
