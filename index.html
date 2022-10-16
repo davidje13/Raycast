@@ -37,6 +37,7 @@
         <label>G <input name="lightCg" type="range" value="1" min="0" max="1" step="any" data-target="light-group" /></label>
         <label>B <input name="lightCb" type="range" value="1" min="0" max="1" step="any" data-target="light-group" /></label>
         <label>Exposure <input name="lightCe" type="range" value="25" min="0" max="100" step="any" data-target="light-group" /></label>
+        <label>Count <input name="lightN" type="range" value="5" min="0" max="9" step="1" data-target="light-group" /></label>
         <details>
           <summary>Custom</summary>
           <fieldset>
@@ -48,6 +49,7 @@
             <label>R <input name="light1r" type="range" value="0" min="0" max="100" step="any" /></label>
             <label>G <input name="light1g" type="range" value="0" min="0" max="100" step="any" /></label>
             <label>B <input name="light1b" type="range" value="0" min="0" max="100" step="any" /></label>
+            <span id="light1c" class="col"></span>
           </fieldset>
           <fieldset>
             <legend><label><input name="light2" type="checkbox" checked /> Light 2</label></legend>
@@ -58,6 +60,7 @@
             <label>R <input name="light2r" type="range" value="0" min="0" max="100" step="any" /></label>
             <label>G <input name="light2g" type="range" value="0" min="0" max="100" step="any" /></label>
             <label>B <input name="light2b" type="range" value="0" min="0" max="100" step="any" /></label>
+            <span id="light2c" class="col"></span>
           </fieldset>
           <fieldset>
             <legend><label><input name="light3" type="checkbox" checked /> Light 3</label></legend>
@@ -68,6 +71,7 @@
             <label>R <input name="light3r" type="range" value="0" min="0" max="100" step="any" /></label>
             <label>G <input name="light3g" type="range" value="0" min="0" max="100" step="any" /></label>
             <label>B <input name="light3b" type="range" value="0" min="0" max="100" step="any" /></label>
+            <span id="light3c" class="col"></span>
           </fieldset>
           <fieldset>
             <legend><label><input name="light4" type="checkbox" checked /> Light 4</label></legend>
@@ -78,6 +82,7 @@
             <label>R <input name="light4r" type="range" value="0" min="0" max="100" step="any" /></label>
             <label>G <input name="light4g" type="range" value="0" min="0" max="100" step="any" /></label>
             <label>B <input name="light4b" type="range" value="0" min="0" max="100" step="any" /></label>
+            <span id="light4c" class="col"></span>
           </fieldset>
           <fieldset>
             <legend><label><input name="light5" type="checkbox" checked /> Light 5</label></legend>
@@ -88,6 +93,51 @@
             <label>R <input name="light5r" type="range" value="0" min="0" max="100" step="any" /></label>
             <label>G <input name="light5g" type="range" value="0" min="0" max="100" step="any" /></label>
             <label>B <input name="light5b" type="range" value="0" min="0" max="100" step="any" /></label>
+            <span id="light5c" class="col"></span>
+          </fieldset>
+          <fieldset>
+            <legend><label><input name="light6" type="checkbox" checked /> Light 6</label></legend>
+            <label>X <input name="light6x" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>Y <input name="light6y" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>tan<sup>-1</sup>(1/Z) <input name="light6z" type="range" value="0" min="0" max="90" step="any" /></label>
+            <br />
+            <label>R <input name="light6r" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>G <input name="light6g" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>B <input name="light6b" type="range" value="0" min="0" max="100" step="any" /></label>
+            <span id="light6c" class="col"></span>
+          </fieldset>
+          <fieldset>
+            <legend><label><input name="light7" type="checkbox" checked /> Light 7</label></legend>
+            <label>X <input name="light7x" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>Y <input name="light7y" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>tan<sup>-1</sup>(1/Z) <input name="light7z" type="range" value="0" min="0" max="90" step="any" /></label>
+            <br />
+            <label>R <input name="light7r" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>G <input name="light7g" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>B <input name="light7b" type="range" value="0" min="0" max="100" step="any" /></label>
+            <span id="light7c" class="col"></span>
+          </fieldset>
+          <fieldset>
+            <legend><label><input name="light8" type="checkbox" checked /> Light 8</label></legend>
+            <label>X <input name="light8x" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>Y <input name="light8y" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>tan<sup>-1</sup>(1/Z) <input name="light8z" type="range" value="0" min="0" max="90" step="any" /></label>
+            <br />
+            <label>R <input name="light8r" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>G <input name="light8g" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>B <input name="light8b" type="range" value="0" min="0" max="100" step="any" /></label>
+            <span id="light8c" class="col"></span>
+          </fieldset>
+          <fieldset>
+            <legend><label><input name="light9" type="checkbox" checked /> Light 9</label></legend>
+            <label>X <input name="light9x" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>Y <input name="light9y" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>tan<sup>-1</sup>(1/Z) <input name="light9z" type="range" value="0" min="0" max="90" step="any" /></label>
+            <br />
+            <label>R <input name="light9r" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>G <input name="light9g" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>B <input name="light9b" type="range" value="0" min="0" max="100" step="any" /></label>
+            <span id="light9c" class="col"></span>
           </fieldset>
         </details>
       </fieldset>

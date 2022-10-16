@@ -34,3 +34,12 @@ summary {
 input[type=range] {
   vertical-align: -3px;
 }
+
+.col {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border-radius: 100%;
+  box-shadow: 0 0 1px #000000;
+  vertical-align: -1px;
+}
