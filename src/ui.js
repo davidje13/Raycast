@@ -81,6 +81,7 @@ function getConfig(full) {
   return {
     resolution: full ? dpr : 1,
     lightQuality: full ? 300 : 100,
+    time: getValue('time'),
     stencil: {
       frame: getValue('frame'),
       trace: getValue('trace'),

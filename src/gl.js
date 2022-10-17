@@ -38,6 +38,7 @@ class GLContext {
     this.ctx.linkProgram(program);
     this.ctx.validateProgram(program);
     if (
+      shaders.some((shader) => !this.ctx.getShaderParameter(shader, GL.COMPILE_STATUS)) ||
       !this.ctx.getProgramParameter(program, GL.LINK_STATUS) ||
       !this.ctx.getProgramParameter(program, GL.VALIDATE_STATUS)
     ) {

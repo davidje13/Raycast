@@ -14,6 +14,7 @@ window.addEventListener('DOMContentLoaded', () => {
       maxz: 3.0,
       minsize: 0.005,
       maxsize: 0.010,
+      updateInterval: 0.1,
     },
     stencilRenderer: new StencilRenderer(renderLogo, 512),
   });
@@ -23,12 +24,12 @@ window.addEventListener('DOMContentLoaded', () => {
   let playing = false;
   let frame = 0;
   const totalFrames = 1000;
+  const fps = 30;
   let baseConfig = {};
   document.getElementById('play').addEventListener('click', () => {
     playing = !playing;
     if (playing) {
       frame = 0;
-      // TODO: reset dust
       baseConfig = getConfig(true);
       requestAnimationFrame(stepAnimation);
     }
@@ -37,12 +38,9 @@ window.addEventListener('DOMContentLoaded', () => {
     if (!playing) {
       return;
     }
-    if (frame % 2 === 0) {
-      // TODO: uncouple dust from frames, interpolate dust if using more frames than updates
-      renderer._stepDust();
-    }
     renderer.render({
       ...baseConfig,
+      time: frame / fps,
       stencil: {
         ...baseConfig.stencil,
         frame: frame / totalFrames,
