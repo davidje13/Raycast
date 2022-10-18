@@ -26,15 +26,13 @@ class GLContext {
     return shader;
   }
 
-  linkProgram(shaders, feedbackVaryings, feedbackMode) {
+  linkProgram(shaders, prelink) {
     // https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#dont_check_shader_compile_status_unless_linking_fails
     const program = this.ctx.createProgram();
     for (const shader of shaders) {
       this.ctx.attachShader(program, shader);
     }
-    if (feedbackVaryings) {
-      this.ctx.transformFeedbackVaryings(program, feedbackVaryings, feedbackMode);
-    }
+    prelink?.(program);
     this.ctx.linkProgram(program);
     this.ctx.validateProgram(program);
     if (
@@ -48,10 +46,10 @@ class GLContext {
     return program;
   }
 
-  linkVertexFragmentProgram(vertex, fragment, feedbackVaryings, feedbackMode) {
+  linkVertexFragmentProgram(vertex, fragment, prelink) {
     return this.linkProgram([
       this.compileShader(GL.VERTEX_SHADER, vertex),
       this.compileShader(GL.FRAGMENT_SHADER, fragment),
-    ], feedbackVaryings, feedbackMode);
+    ], prelink);
   }
 }

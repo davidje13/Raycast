@@ -88,6 +88,7 @@ function getConfig(full) {
     },
     lights,
     fog: getValue('fog'),
+    grid: document.getElementsByName('grid')[0].checked,
     view: {
       fov: getValue('fov') * DEG2RAD,
       eyeSeparation: getValue('eyesep'),

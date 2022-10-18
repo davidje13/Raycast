@@ -17,6 +17,50 @@ vec2 random(uvec2 seed) {
   return vec2(v & 0xFFFFu) / 65535.0;
 }`;
 
+const GRID_VERT = `#version 300 es
+precision mediump float;
+
+uniform vec2 fov;
+uniform vec3 origin;
+in vec2 v;
+out vec2 p;
+
+void main(void) {
+  p = v * fov;
+  gl_Position = vec4(v, 0.0, 1.0);
+}`;
+
+const GRID_FRAG = `#version 300 es
+precision mediump float;
+
+uniform vec3 origin;
+uniform mat3 view;
+uniform float linew;
+in vec2 p;
+out vec4 col;
+
+void main(void) {
+  float inclination = length(p);
+  vec3 ray = view * -vec3(sin(inclination) * p / inclination, cos(inclination));
+
+  if (ray.z < 0.0) {
+    float d = origin.z / ray.z;
+    vec2 uv = origin.xy - d * ray.xy;
+    vec2 lim = abs(mod(uv, 1.0) - 0.5);
+    vec2 thresh = vec2(
+      smoothstep(0.5 - fwidth(uv.x) * linew, 0.5, lim.x),
+      smoothstep(0.5 - fwidth(uv.y) * linew, 0.5, lim.y)
+    );
+    col = mix(
+      vec4(0.00, 0.20, 0.05, 1.0),
+      vec4(0.00, 0.05, 0.02, 1.0),
+      (1.0 - max(thresh.x, thresh.y)) * pow(0.95, -d)
+    );
+  } else {
+    col = vec4(0.00, 0.07, 0.20, 1.0);
+  }
+}`;
+
 const RENDER_VERT = `#version 300 es
 precision mediump float;
 
@@ -230,6 +274,8 @@ void main(void) {
   col = vec4(vec3((z - sqrt(1.0 - d2) * r) * depthScale), 1.0);
 }`;
 
+const QUAD_ATTRIB_LOCATION = 0;
+
 class Renderer extends GLContext {
   constructor(canvas, { width, height, shadowMapSize, dust, stencilRenderer }) {
     super(canvas, {
@@ -246,6 +292,7 @@ class Renderer extends GLContext {
     this.dust = dust;
     this.shadowMapSize = shadowMapSize;
     this.stencilRenderer = stencilRenderer;
+    this.maxStepsPerLight = 500;
     this.shadowMaps = [];
     this.latestConfig = {};
 
@@ -265,7 +312,9 @@ class Renderer extends GLContext {
       this.stencilRenderer.size,
     );
 
-    this.dustProgram = this.linkVertexFragmentProgram(DUST_VERT, NOOP_FRAG, ['newPos', 'newVel'], GL.INTERLEAVED_ATTRIBS);
+    this.dustProgram = this.linkVertexFragmentProgram(DUST_VERT, NOOP_FRAG, (p) => {
+      this.ctx.transformFeedbackVaryings(p, ['newPos', 'newVel'], GL.INTERLEAVED_ATTRIBS);
+    });
     this.dustProgramLBound = this.ctx.getUniformLocation(this.dustProgram, 'lbound');
     this.dustProgramUBound = this.ctx.getUniformLocation(this.dustProgram, 'ubound');
     this.dustProgramReset = this.ctx.getUniformLocation(this.dustProgram, 'reset');
@@ -280,17 +329,16 @@ class Renderer extends GLContext {
     const shadowProgramVNext = this.ctx.getAttribLocation(this.shadowProgram, 'vNext');
     const shadowProgramVPrev = this.ctx.getAttribLocation(this.shadowProgram, 'vPrev');
 
-    const dustDataInit = new Float32Array(dust.count * 8);
     [this.dust1, this.dust2] = [1, 2].map(() => {
       const vertexArrayUpdate = this.ctx.createVertexArray();
       this.ctx.bindVertexArray(vertexArrayUpdate);
       const buffer = this.ctx.createBuffer();
       this.ctx.bindBuffer(GL.ARRAY_BUFFER, buffer);
-      this.ctx.bufferData(GL.ARRAY_BUFFER, dustDataInit, GL.DYNAMIC_DRAW);
+      this.ctx.bufferData(GL.ARRAY_BUFFER, dust.count * 8 * Float32Array.BYTES_PER_ELEMENT, GL.DYNAMIC_DRAW);
       this.ctx.enableVertexAttribArray(dustProgramOldPos);
-      this.ctx.vertexAttribPointer(dustProgramOldPos, 4, GL.FLOAT, false, 8 * 4, 0 * 4);
+      this.ctx.vertexAttribPointer(dustProgramOldPos, 4, GL.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 0 * Float32Array.BYTES_PER_ELEMENT);
       this.ctx.enableVertexAttribArray(dustProgramOldVel);
-      this.ctx.vertexAttribPointer(dustProgramOldVel, 4, GL.FLOAT, false, 8 * 4, 4 * 4);
+      this.ctx.vertexAttribPointer(dustProgramOldVel, 4, GL.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 4 * Float32Array.BYTES_PER_ELEMENT);
 
       const vertexArrayRender = this.ctx.createVertexArray();
       return { buffer, vertexArrayUpdate, vertexArrayRender };
@@ -301,14 +349,24 @@ class Renderer extends GLContext {
       this.ctx.bindBuffer(GL.ARRAY_BUFFER, me.buffer);
       this.ctx.enableVertexAttribArray(shadowProgramVNext);
       this.ctx.vertexAttribDivisor(shadowProgramVNext, 4);
-      this.ctx.vertexAttribPointer(shadowProgramVNext, 4, GL.FLOAT, false, 8 * 4, 0 * 4);
+      this.ctx.vertexAttribPointer(shadowProgramVNext, 4, GL.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 0 * Float32Array.BYTES_PER_ELEMENT);
       this.ctx.bindBuffer(GL.ARRAY_BUFFER, other.buffer);
       this.ctx.enableVertexAttribArray(shadowProgramVPrev);
       this.ctx.vertexAttribDivisor(shadowProgramVPrev, 4);
-      this.ctx.vertexAttribPointer(shadowProgramVPrev, 4, GL.FLOAT, false, 8 * 4, 0 * 4);
+      this.ctx.vertexAttribPointer(shadowProgramVPrev, 4, GL.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 0 * Float32Array.BYTES_PER_ELEMENT);
     }
 
-    this.program = this.linkVertexFragmentProgram(RENDER_VERT, RENDER_FRAG);
+    this.gridProgram = this.linkVertexFragmentProgram(GRID_VERT, GRID_FRAG, (p) => {
+      this.ctx.bindAttribLocation(p, QUAD_ATTRIB_LOCATION, 'v');
+    });
+    this.gridProgramFOV = this.ctx.getUniformLocation(this.gridProgram, 'fov');
+    this.gridProgramOrigin = this.ctx.getUniformLocation(this.gridProgram, 'origin');
+    this.gridProgramView = this.ctx.getUniformLocation(this.gridProgram, 'view');
+    this.gridProgramLineW = this.ctx.getUniformLocation(this.gridProgram, 'linew');
+
+    this.program = this.linkVertexFragmentProgram(RENDER_VERT, RENDER_FRAG, (p) => {
+      this.ctx.bindAttribLocation(p, QUAD_ATTRIB_LOCATION, 'v');
+    });
 
     this.programStencil = this.ctx.getUniformLocation(this.program, 'stencil');
     this.programShadow = this.ctx.getUniformLocation(this.program, 'shadow');
@@ -324,7 +382,6 @@ class Renderer extends GLContext {
     this.programIFog = this.ctx.getUniformLocation(this.program, 'ifog');
     this.programLightCol = this.ctx.getUniformLocation(this.program, 'lightcol');
     this.programRandomSeed = this.ctx.getUniformLocation(this.program, 'randomSeed');
-    const programV = this.ctx.getAttribLocation(this.program, 'v');
 
     this.quadVertexArray = this.ctx.createVertexArray();
     this.ctx.bindVertexArray(this.quadVertexArray);
@@ -336,8 +393,8 @@ class Renderer extends GLContext {
       -1.0, 1.0,
       1.0, 1.0,
     ]), GL.STATIC_DRAW);
-    this.ctx.enableVertexAttribArray(programV);
-    this.ctx.vertexAttribPointer(programV, 2, GL.FLOAT, false, 0, 0);
+    this.ctx.enableVertexAttribArray(QUAD_ATTRIB_LOCATION);
+    this.ctx.vertexAttribPointer(QUAD_ATTRIB_LOCATION, 2, GL.FLOAT, false, 0, 0);
   }
 
   _stepDust(from, to) {
@@ -360,6 +417,7 @@ class Renderer extends GLContext {
         reset = 0;
         this.ctx.bindVertexArray(this.dust1.vertexArrayUpdate);
         this.ctx.bindBufferBase(GL.TRANSFORM_FEEDBACK_BUFFER, 0, this.dust2.buffer);
+        // TODO: smarter dust update (model air as incompressible fluid with boundary at stencil and upward force through gaps)
 
         this.ctx.beginTransformFeedback(GL.POINTS);
         this.ctx.drawArrays(GL.POINTS, 0, this.dust.count);
@@ -459,25 +517,6 @@ class Renderer extends GLContext {
 
     const eyeSep = config.view.eyeSeparation;
     const stereoscopic = Boolean(eyeSep);
-    const totalSteps = config.lightQuality;
-    const maxStepsPerLight = 500;
-
-    this.ctx.useProgram(this.program);
-    this.ctx.activeTexture(GL.TEXTURE0);
-    this.ctx.bindTexture(GL.TEXTURE_2D, this.stencil);
-    this.ctx.uniform1i(this.programStencil, 0);
-    this.ctx.uniform2f(
-      this.programFOV,
-      config.view.fov * 0.5,
-      -config.view.fov * 0.5 * this.height / this.width,
-    );
-    this.ctx.uniform2f(this.programStencilLow, this.stencilInfo.minx, this.stencilInfo.miny);
-    this.ctx.uniform2f(this.programStencilHigh, this.stencilInfo.maxx, this.stencilInfo.maxy);
-    this.ctx.uniform1f(this.programShadowMin, this.dust.minz);
-    this.ctx.uniform1f(this.programShadowRange, this.dust.maxz - this.dust.minz);
-    this.ctx.uniform1i(this.programSteps, Math.min(Math.ceil(totalSteps / config.lights.length), maxStepsPerLight));
-    this.ctx.uniform1f(this.programIFog, 1 - config.fog);
-    this.ctx.bindVertexArray(this.quadVertexArray);
 
     this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, null);
 
@@ -499,11 +538,6 @@ class Renderer extends GLContext {
   }
 
   _renderEye(config, eyeShift) {
-    if (!config.lights.length) {
-      this.ctx.clearColor(0, 0, 0, 1);
-      this.ctx.clear(GL.COLOR_BUFFER_BIT);
-      return;
-    }
     let view = makeViewMatrix(config.view.camera, config.view.focus, config.view.up);
     if (eyeShift) {
       view = makeViewMatrix(
@@ -520,12 +554,52 @@ class Renderer extends GLContext {
         },
       );
     }
-    this.ctx.uniformMatrix3fv(this.programView, false, mat4xyz(view));
-    this.ctx.uniform3f(this.programOrigin, view[12], view[13], view[14]);
 
     this.ctx.blendEquation(GL.FUNC_ADD);
     this.ctx.blendFunc(GL.ONE, GL.ONE);
     this.ctx.disable(GL.BLEND);
+
+    this.ctx.bindVertexArray(this.quadVertexArray);
+
+    if (config.grid) {
+      this.ctx.useProgram(this.gridProgram);
+      this.ctx.uniform2f(
+        this.gridProgramFOV,
+        config.view.fov * 0.5,
+        -config.view.fov * 0.5 * this.height / this.width,
+      );
+      this.ctx.uniformMatrix3fv(this.gridProgramView, false, mat4xyz(view));
+      this.ctx.uniform3f(this.gridProgramOrigin, view[12], view[13], view[14]);
+      this.ctx.uniform1f(this.gridProgramLineW, config.resolution * 1.5);
+      this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
+    } else {
+      this.ctx.clearColor(0, 0, 0, 1);
+      this.ctx.clear(GL.COLOR_BUFFER_BIT);
+    }
+
+    if (!config.lights.length) {
+      return;
+    }
+
+    this.ctx.enable(GL.BLEND);
+    this.ctx.useProgram(this.program);
+    this.ctx.uniform2f(
+      this.programFOV,
+      config.view.fov * 0.5,
+      -config.view.fov * 0.5 * this.height / this.width,
+    );
+    this.ctx.uniform2f(this.programStencilLow, this.stencilInfo.minx, this.stencilInfo.miny);
+    this.ctx.uniform2f(this.programStencilHigh, this.stencilInfo.maxx, this.stencilInfo.maxy);
+    this.ctx.uniform1f(this.programShadowMin, this.dust.minz);
+    this.ctx.uniform1f(this.programShadowRange, this.dust.maxz - this.dust.minz);
+    this.ctx.uniform1i(this.programSteps, Math.min(Math.ceil(config.lightQuality / config.lights.length), this.maxStepsPerLight));
+    this.ctx.uniform1f(this.programIFog, 1 - config.fog);
+    this.ctx.uniformMatrix3fv(this.programView, false, mat4xyz(view));
+    this.ctx.uniform3f(this.programOrigin, view[12], view[13], view[14]);
+
+    this.ctx.activeTexture(GL.TEXTURE0);
+    this.ctx.uniform1i(this.programStencil, 0);
+    this.ctx.bindTexture(GL.TEXTURE_2D, this.stencil);
 
     this.ctx.activeTexture(GL.TEXTURE1);
     this.ctx.uniform1i(this.programShadow, 1);
@@ -537,8 +611,6 @@ class Renderer extends GLContext {
       this.ctx.uniform1ui(this.programRandomSeed, (config.time * 97 + i)|0);
       this.ctx.bindTexture(GL.TEXTURE_2D, this.shadowMaps[i].texture);
       this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
-
-      this.ctx.enable(GL.BLEND);
     }
     this.ctx.disable(GL.BLEND);
   }
