@@ -520,6 +520,11 @@ class Renderer extends GLContext {
 
     this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, null);
 
+    if (!config.grid) {
+      this.ctx.clearColor(0, 0, 0, 1);
+      this.ctx.clear(GL.COLOR_BUFFER_BIT);
+    }
+
     if (stereoscopic) {
       const sz = this.resize(this.width * 2, this.height, config.resolution);
       this.ctx.viewport(0, 0, sz.w / 2, sz.h);
@@ -572,9 +577,6 @@ class Renderer extends GLContext {
       this.ctx.uniform3f(this.gridProgramOrigin, view[12], view[13], view[14]);
       this.ctx.uniform1f(this.gridProgramLineW, config.resolution * 1.5);
       this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
-    } else {
-      this.ctx.clearColor(0, 0, 0, 1);
-      this.ctx.clear(GL.COLOR_BUFFER_BIT);
     }
 
     if (!config.lights.length) {
