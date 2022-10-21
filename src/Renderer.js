@@ -65,29 +65,11 @@ const RENDER_VERT = `#version 300 es
 precision mediump float;
 
 uniform vec2 fov;
-uniform vec3 origin;
-uniform vec3 light;
-uniform vec2 stencilLow;
-uniform vec2 stencilHigh;
-
 in vec2 v;
-
 out vec2 p;
-flat out float A;
-flat out vec2 lbound;
-flat out vec2 ubound;
-flat out int inside;
 
 void main(void) {
   p = v * fov;
-  lbound = stencilLow - light.xy;
-  ubound = stencilHigh - light.xy;
-  A = 1.0 - origin.z / light.z;
-  vec2 s = origin.xy - light.xy;
-  inside = (
-    all(greaterThan(s, lbound.xy * A)) &&
-    all(lessThan(s, ubound.xy * A))
-  ) ? 1 : 0;
   gl_Position = vec4(v, 0.0, 1.0);
 }`;
 
@@ -105,13 +87,12 @@ uniform vec3 lightcol;
 uniform float shadowMin;
 uniform float shadowRange;
 uniform uint randomSeed;
+uniform vec2 lbound;
+uniform vec2 ubound;
+uniform float A;
+uniform bool inside;
 
 in vec2 p;
-flat in float A;
-flat in vec2 lbound;
-flat in vec2 ubound;
-flat in int inside;
-
 out vec4 col;
 
 ${RANDOM_FN}
@@ -147,7 +128,7 @@ void main(void) {
   vec2 limu = (A * ubound + light.xy - origin.xy) / (B * ubound + ray.xy);
 
   float tmin;
-  if (inside != 0) {
+  if (inside) {
     tmin = 0.0;
   } else {
     tmin = tf;
@@ -233,6 +214,7 @@ precision mediump float;
 uniform vec3 light;
 uniform float minZ;
 uniform float lerp;
+uniform float depthScale;
 
 in vec4 vNext;
 in vec4 vPrev;
@@ -244,21 +226,13 @@ flat out float r;
 void main(void) {
   uv = (vec2(ivec2(gl_VertexID / 2, gl_VertexID % 2)) - 0.5) * 2.0;
   vec4 v = mix(vPrev, vNext, lerp);
-  z = v.z - minZ;
-  r = v.w;
-  vec3 pos = v.xyz - light;
-  if (pos.z <= 0.0) {
-    gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
-  } else {
-    float scale = -light.z / pos.z;
-    gl_Position = vec4((pos.xy + uv * r) * scale + light.xy, 0.0, 1.0);
-  }
+  z = (v.z - minZ) * depthScale;
+  r = v.w * depthScale;
+  gl_Position = vec4(light.xy * v.z - (v.xy + uv * v.w) * light.z, 0.0, v.z - light.z);
 }`;
 
 const SHADOW_FRAG = `#version 300 es
 precision mediump float;
-
-uniform float depthScale;
 
 in vec2 uv;
 flat in float z;
@@ -271,7 +245,7 @@ void main(void) {
   if (d2 > 1.0) {
     discard;
   }
-  col = vec4(vec3((z - sqrt(1.0 - d2) * r) * depthScale), 1.0);
+  col = vec4(vec3(z - sqrt(1.0 - d2) * r), 1.0);
 }`;
 
 const QUAD_ATTRIB_LOCATION = 0;
@@ -373,8 +347,10 @@ class Renderer extends GLContext {
     this.programFOV = this.ctx.getUniformLocation(this.program, 'fov');
     this.programOrigin = this.ctx.getUniformLocation(this.program, 'origin');
     this.programView = this.ctx.getUniformLocation(this.program, 'view');
-    this.programStencilLow = this.ctx.getUniformLocation(this.program, 'stencilLow');
-    this.programStencilHigh = this.ctx.getUniformLocation(this.program, 'stencilHigh');
+    this.programLBound = this.ctx.getUniformLocation(this.program, 'lbound');
+    this.programUBound = this.ctx.getUniformLocation(this.program, 'ubound');
+    this.programA = this.ctx.getUniformLocation(this.program, 'A');
+    this.programInside = this.ctx.getUniformLocation(this.program, 'inside');
     this.programShadowMin = this.ctx.getUniformLocation(this.program, 'shadowMin');
     this.programShadowRange = this.ctx.getUniformLocation(this.program, 'shadowRange');
     this.programLight = this.ctx.getUniformLocation(this.program, 'light');
@@ -559,6 +535,7 @@ class Renderer extends GLContext {
         },
       );
     }
+    const origin = { x: view[12], y: view[13], z: view[14] };
 
     this.ctx.blendEquation(GL.FUNC_ADD);
     this.ctx.blendFunc(GL.ONE, GL.ONE);
@@ -574,7 +551,7 @@ class Renderer extends GLContext {
         -config.view.fov * 0.5 * this.height / this.width,
       );
       this.ctx.uniformMatrix3fv(this.gridProgramView, false, mat4xyz(view));
-      this.ctx.uniform3f(this.gridProgramOrigin, view[12], view[13], view[14]);
+      this.ctx.uniform3f(this.gridProgramOrigin, origin.x, origin.y, origin.z);
       this.ctx.uniform1f(this.gridProgramLineW, config.resolution * 1.5);
       this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
     }
@@ -590,14 +567,12 @@ class Renderer extends GLContext {
       config.view.fov * 0.5,
       -config.view.fov * 0.5 * this.height / this.width,
     );
-    this.ctx.uniform2f(this.programStencilLow, this.stencilInfo.minx, this.stencilInfo.miny);
-    this.ctx.uniform2f(this.programStencilHigh, this.stencilInfo.maxx, this.stencilInfo.maxy);
     this.ctx.uniform1f(this.programShadowMin, this.dust.minz);
     this.ctx.uniform1f(this.programShadowRange, this.dust.maxz - this.dust.minz);
     this.ctx.uniform1i(this.programSteps, Math.min(Math.ceil(config.lightQuality / config.lights.length), this.maxStepsPerLight));
     this.ctx.uniform1f(this.programIFog, 1 - config.fog);
     this.ctx.uniformMatrix3fv(this.programView, false, mat4xyz(view));
-    this.ctx.uniform3f(this.programOrigin, view[12], view[13], view[14]);
+    this.ctx.uniform3f(this.programOrigin, origin.x, origin.y, origin.z);
 
     this.ctx.activeTexture(GL.TEXTURE0);
     this.ctx.uniform1i(this.programStencil, 0);
@@ -607,9 +582,24 @@ class Renderer extends GLContext {
     this.ctx.uniform1i(this.programShadow, 1);
 
     for (let i = 0; i < config.lights.length; ++i) {
-      const light = config.lights[i];
-      this.ctx.uniform3f(this.programLight, light.pos.x, light.pos.y, light.pos.z);
-      this.ctx.uniform3f(this.programLightCol, light.col.r, light.col.g, light.col.b);
+      const { pos, col } = config.lights[i];
+      const A = 1 - origin.z / pos.z;
+      const lboundx = this.stencilInfo.minx - pos.x;
+      const lboundy = this.stencilInfo.miny - pos.y;
+      const uboundx = this.stencilInfo.maxx - pos.x;
+      const uboundy = this.stencilInfo.maxy - pos.y;
+      const sx = origin.x - pos.x;
+      const sy = origin.y - pos.y;
+      const inside = (
+        sx > lboundx * A && sx < uboundx * A &&
+        sy > lboundy * A && sy < uboundy * A
+      )
+      this.ctx.uniform3f(this.programLight, pos.x, pos.y, pos.z);
+      this.ctx.uniform3f(this.programLightCol, col.r, col.g, col.b);
+      this.ctx.uniform2f(this.programLBound, lboundx, lboundy);
+      this.ctx.uniform2f(this.programUBound, uboundx, uboundy);
+      this.ctx.uniform1f(this.programA, A);
+      this.ctx.uniform1i(this.programInside, inside);
       this.ctx.uniform1ui(this.programRandomSeed, (config.time * 97 + i)|0);
       this.ctx.bindTexture(GL.TEXTURE_2D, this.shadowMaps[i].texture);
       this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
