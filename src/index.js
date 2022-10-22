@@ -21,8 +21,11 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   const hashWatch = new HashWatch();
-  const ui = new UI((config) => {
-    hashWatch.setJSON(config);
+  const ui = new UI((full) => {
+    const config = ui.get(full);
+    if (full) {
+      hashWatch.setJSON(config);
+    }
     renderer.render(config);
   }, hashWatch.getJSON());
 

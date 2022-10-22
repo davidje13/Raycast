@@ -180,12 +180,12 @@ class UI {
     let tm = null;
     const configInput = () => {
       updateLightUI();
-      callback(getConfig(false));
+      callback(false);
     };
     const configChange = () => {
       updateLightUI();
       clearTimeout(tm);
-      tm = setTimeout(() => callback(getConfig(true)), 0);
+      tm = setTimeout(() => callback(true), 0);
     };
 
     const lightGroupInput = () => {
