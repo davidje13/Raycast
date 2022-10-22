@@ -1,8 +1,5 @@
 'use strict';
 
-const dpr = window.devicePixelRatio;
-window.devicePixelRatio = 1;
-
 const DEG2RAD = Math.PI / 180;
 
 function getValue(name) {
@@ -105,7 +102,7 @@ function setLightCluster({ x, y, z1, z2, r, g, b, e, count }) {
 
 function getView() {
   return {
-    fov: getValue('fov') * DEG2RAD,
+    fovy: getValue('fovy') * DEG2RAD,
     eyeSeparation: getValue('eyesep'),
     camera: {
       x: getValue('camerax'),
@@ -126,7 +123,7 @@ function getView() {
 }
 
 function setView(view) {
-  setValue('fov', (view.fov ?? 60) / DEG2RAD);
+  setValue('fovy', (view.fovy || ((view.fovx ?? view.fov) * 0.75) || 60) / DEG2RAD);
   setValue('eyesep', view.eyeSeparation ?? 0);
   setValue('camerax', view.camera.x ?? 0);
   setValue('cameray', view.camera.y ?? 0);
@@ -143,7 +140,7 @@ function getConfig(full) {
   const lights = getLights();
 
   return {
-    resolution: full ? dpr : 1,
+    resolution: full ? 1 : 0.25,
     lightQuality: full ? 70 : Math.ceil(100 / lights.length),
     time: getValue('time'),
     stencil: {

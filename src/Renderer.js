@@ -261,7 +261,7 @@ void main(void) {
 const QUAD_ATTRIB_LOCATION = 0;
 
 class Renderer extends GLContext {
-  constructor(canvas, { width, height, shadowMapSize, dust, stencilRenderer }) {
+  constructor(canvas, { width, height, displayScale, shadowMapSize, dust, stencilRenderer }) {
     super(canvas, {
       // https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#avoid_alphafalse_which_can_be_expensive
       depth: false,
@@ -269,10 +269,11 @@ class Renderer extends GLContext {
       antialias: false,
       preserveDrawingBuffer: false,
     });
-    this.resize(width, height, 1);
+    this.resizeDisplay(width * displayScale, height * displayScale);
 
     this.width = width;
     this.height = height;
+    this.displayScale = displayScale;
     this.dust = dust;
     this.shadowMapSize = shadowMapSize;
     this.stencilRenderer = stencilRenderer;
@@ -523,15 +524,24 @@ class Renderer extends GLContext {
       this.ctx.clear(GL.COLOR_BUFFER_BIT);
     }
 
+    const w = (this.width * (stereoscopic ? 2 : 1) * config.resolution)|0;
+    const h = (this.height * config.resolution)|0;
+    if (this.ctx.canvas.width !== w || this.ctx.canvas.height !== h) {
+      this.ctx.canvas.width = w;
+      this.ctx.canvas.height = h;
+      this.resizeDisplay(
+        this.width * (stereoscopic ? 2 : 1) * this.displayScale,
+        this.height * this.displayScale,
+      );
+    }
+
     if (stereoscopic) {
-      const sz = this.resize(this.width * 2, this.height, config.resolution);
-      this.ctx.viewport(0, 0, sz.w / 2, sz.h);
+      this.ctx.viewport(0, 0, w / 2, h);
       this._renderEye(config, -eyeSep * 0.5);
-      this.ctx.viewport(sz.w / 2, 0, sz.w / 2, sz.h);
+      this.ctx.viewport(w / 2, 0, w / 2, h);
       this._renderEye(config, eyeSep * 0.5);
     } else {
-      const sz = this.resize(this.width, this.height, config.resolution);
-      this.ctx.viewport(0, 0, sz.w, sz.h);
+      this.ctx.viewport(0, 0, w, h);
       this._renderEye(config, 0);
     }
 
@@ -558,6 +568,9 @@ class Renderer extends GLContext {
       );
     }
     const origin = { x: view[12], y: view[13], z: view[14] };
+    const aspect = this.height / this.width;
+    const fovx = (config.view.fovx ?? (config.view.fovy / aspect)) * 0.5;
+    const fovy = (config.view.fovy ?? (fovx * aspect)) * -0.5;
 
     this.ctx.blendEquation(GL.FUNC_ADD);
     this.ctx.blendFunc(GL.ONE, GL.ONE);
@@ -567,14 +580,10 @@ class Renderer extends GLContext {
 
     if (config.grid) {
       this.ctx.useProgram(this.gridProgram);
-      this.ctx.uniform2f(
-        this.gridProgramFOV,
-        config.view.fov * 0.5,
-        -config.view.fov * 0.5 * this.height / this.width,
-      );
+      this.ctx.uniform2f(this.gridProgramFOV, fovx, fovy);
       this.ctx.uniformMatrix3fv(this.gridProgramView, false, mat4xyz(view));
       this.ctx.uniform3f(this.gridProgramOrigin, origin.x, origin.y, origin.z);
-      this.ctx.uniform1f(this.gridProgramLineW, config.resolution * 1.5);
+      this.ctx.uniform1f(this.gridProgramLineW, config.resolution * 3);
       this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
     }
 
@@ -584,11 +593,7 @@ class Renderer extends GLContext {
 
     this.ctx.enable(GL.BLEND);
     this.ctx.useProgram(this.program);
-    this.ctx.uniform2f(
-      this.programFOV,
-      config.view.fov * 0.5,
-      -config.view.fov * 0.5 * this.height / this.width,
-    );
+    this.ctx.uniform2f(this.programFOV, fovx, fovy);
     this.ctx.uniform1f(this.programStencilDepth, Math.min(this.dust.minz, 0));
     this.ctx.uniform1i(this.programSteps, config.lightQuality);
     this.ctx.uniform1f(this.programIFog, 1 - config.fog);

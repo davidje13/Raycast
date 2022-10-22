@@ -2,10 +2,14 @@
 
 // TODO: camera animation along path
 
+const dpr = window.devicePixelRatio;
+window.devicePixelRatio = 1;
+
 window.addEventListener('DOMContentLoaded', () => {
   const renderer = new Renderer(document.getElementById('output'), {
-    width: 640,
-    height: 480,
+    width: 1920,
+    height: 1080,
+    displayScale: 0.5,
     shadowMapSize: 1024,
     dust: {
       count: 100000,
