@@ -8,12 +8,13 @@ window.addEventListener('DOMContentLoaded', () => {
     height: 480,
     shadowMapSize: 1024,
     dust: {
-      count: 20000,
-      extent: 2.0,
-      minz: -1.0,
-      maxz: 3.0,
-      minsize: 0.005,
-      maxsize: 0.010,
+      count: 100000,
+      extentx: 1.0,
+      extenty: 2.0,
+      minz: -0.5,
+      maxz: 2.0,
+      minsize: 0.002,
+      maxsize: 0.006,
       updateInterval: 0.1,
     },
     stencilRenderer: new StencilRenderer(renderLogo, 512),
@@ -23,13 +24,24 @@ window.addEventListener('DOMContentLoaded', () => {
 
   let playing = false;
   let frame = 0;
+  let framestep;
   const totalFrames = 1000;
   const fps = 30;
   let baseConfig = {};
+  document.getElementById('preview').addEventListener('click', () => {
+    playing = !playing;
+    if (playing) {
+      frame = 0;
+      framestep = 2;
+      baseConfig = getConfig(false);
+      requestAnimationFrame(stepAnimation);
+    }
+  });
   document.getElementById('play').addEventListener('click', () => {
     playing = !playing;
     if (playing) {
       frame = 0;
+      framestep = 1;
       baseConfig = getConfig(true);
       requestAnimationFrame(stepAnimation);
     }
@@ -52,7 +64,7 @@ window.addEventListener('DOMContentLoaded', () => {
       playing = false;
       return;
     }
-    ++frame;
+    frame += framestep;
     requestAnimationFrame(stepAnimation);
   }
 });
