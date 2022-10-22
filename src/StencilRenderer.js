@@ -14,6 +14,19 @@ class StencilRenderer {
     this.ctx = this.canvas.getContext('2d', { alpha: false });
   }
 
+  init(ctx) {
+    this.glCtx = ctx;
+    this.texture = createEmptyTexture(this.glCtx, {
+      wrap: GL.CLAMP_TO_EDGE,
+      mag: GL.LINEAR,
+      min: GL.LINEAR,
+      format: GL.RGBA8, // https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#some_formats_e.g._rgb_may_be_emulated
+      width: this.size,
+      height: this.size,
+    });
+    return this;
+  }
+
   render({ frame, trace }) {
     const size = this.size;
     this.fn(this.ctx, size, frame, trace);
@@ -32,8 +45,20 @@ class StencilRenderer {
         }
       }
     }
+    this.glCtx.bindTexture(GL.TEXTURE_2D, this.texture);
+    this.glCtx.texSubImage2D(
+      GL.TEXTURE_2D,
+      0,
+      0,
+      0,
+      this.size,
+      this.size,
+      GL.RGBA,
+      GL.UNSIGNED_BYTE,
+      this.canvas.transferToImageBitmap(),
+    );
     return {
-      canvas: this.canvas,
+      texture: this.texture,
       minx: (minX - 1) * 2 / size - 1,
       miny: (minY - 1) * 2 / size - 1,
       maxx: (maxX + 1) * 2 / size - 1,
