@@ -22,11 +22,12 @@ window.addEventListener('DOMContentLoaded', () => {
 
   const hashWatch = new HashWatch();
   const ui = new UI((config) => {
-    hashWatch.set(config);
+    hashWatch.setJSON(config);
     renderer.render(config);
-  }, hashWatch.get());
+  }, hashWatch.getJSON());
 
-  hashWatch.onChange = (config) => {
+  hashWatch.onChange = () => {
+    const config = hashWatch.getJSON();
     ui.set(config);
     renderer.render(ui.get(true));
   };

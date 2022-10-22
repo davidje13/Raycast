@@ -9,9 +9,12 @@ class HashWatch {
   }
 
   set(value) {
-    const encoded = JSON.stringify(value).replace(/%/g, '%25');
-    this.skipHash = encoded;
-    document.location.hash = encoded;
+    this.skipHash = value;
+    document.location.hash = value.replace(/%/g, '%25');
+  }
+
+  setJSON(value) {
+    this.set(JSON.stringify(value));
   }
 
   get() {
@@ -19,18 +22,22 @@ class HashWatch {
     if (!raw) {
       return undefined;
     }
+    return decodeURIComponent(raw);
+  }
+
+  getJSON() {
     try {
-      return JSON.parse(decodeURIComponent(raw));
+      return JSON.parse(this.get());
     } catch (e) {
       return undefined;
     }
   }
 
   handleChange() {
-    if (document.location.hash?.substr(1) === this.skipHash) {
+    if (this.get() === this.skipHash) {
       this.skipHash = null;
       return;
     }
-    this.onChange?.(this.get());
+    this.onChange?.();
   }
 }
