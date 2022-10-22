@@ -84,6 +84,8 @@ uniform int steps;
 uniform float ifog;
 uniform vec3 light;
 uniform vec3 lightcol;
+uniform float dustRef;
+uniform float idustOpac;
 uniform float stencilDepth;
 uniform uint randomSeed;
 uniform vec2 lbound;
@@ -173,8 +175,8 @@ void main(void) {
         if (pos.z < d.x) {
           accum += intensity;
         } else if (pos.z < d.y) {
-          accum += 15.0 * intensity;
-          remaining *= pow(0.00001, step);
+          accum += dustRef * intensity;
+          remaining *= pow(idustOpac, step);
         }
       }
       remaining *= ifogstep;
@@ -274,7 +276,6 @@ class Renderer extends GLContext {
     this.dust = dust;
     this.shadowMapSize = shadowMapSize;
     this.stencilRenderer = stencilRenderer;
-    this.maxStepsPerLight = 500;
     this.shadowMaps = [];
     this.latestConfig = {};
 
@@ -373,6 +374,8 @@ class Renderer extends GLContext {
     this.programUBound = this.ctx.getUniformLocation(this.program, 'ubound');
     this.programA = this.ctx.getUniformLocation(this.program, 'A');
     this.programInside = this.ctx.getUniformLocation(this.program, 'inside');
+    this.programDustRef = this.ctx.getUniformLocation(this.program, 'dustRef');
+    this.programIDustOpac = this.ctx.getUniformLocation(this.program, 'idustOpac');
     this.programStencilDepth = this.ctx.getUniformLocation(this.program, 'stencilDepth');
     this.programLight = this.ctx.getUniformLocation(this.program, 'light');
     this.programSteps = this.ctx.getUniformLocation(this.program, 'steps');
@@ -587,10 +590,12 @@ class Renderer extends GLContext {
       -config.view.fov * 0.5 * this.height / this.width,
     );
     this.ctx.uniform1f(this.programStencilDepth, Math.min(this.dust.minz, 0));
-    this.ctx.uniform1i(this.programSteps, Math.min(Math.ceil(config.lightQuality / config.lights.length), this.maxStepsPerLight));
+    this.ctx.uniform1i(this.programSteps, config.lightQuality);
     this.ctx.uniform1f(this.programIFog, 1 - config.fog);
     this.ctx.uniformMatrix3fv(this.programView, false, mat4xyz(view));
     this.ctx.uniform3f(this.programOrigin, origin.x, origin.y, origin.z);
+    this.ctx.uniform1f(this.programDustRef, config.dust.reflectivity);
+    this.ctx.uniform1f(this.programIDustOpac, Math.pow(1 - config.dust.opacity, 30));
 
     this.ctx.activeTexture(GL.TEXTURE0);
     this.ctx.uniform1i(this.programStencil, 0);
@@ -618,7 +623,7 @@ class Renderer extends GLContext {
       this.ctx.uniform2f(this.programUBound, uboundx, uboundy);
       this.ctx.uniform1f(this.programA, A);
       this.ctx.uniform1i(this.programInside, inside);
-      this.ctx.uniform1ui(this.programRandomSeed, (config.time * 97 + i)|0);
+      this.ctx.uniform1ui(this.programRandomSeed, (config.time * 977 + i)|0);
       this.ctx.bindTexture(GL.TEXTURE_2D, this.shadowMaps[i].texture);
       this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
     }

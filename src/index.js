@@ -20,7 +20,16 @@ window.addEventListener('DOMContentLoaded', () => {
     stencilRenderer: new StencilRenderer(renderLogo, 512),
   });
 
-  buildUI((config) => renderer.render(config));
+  const hashWatch = new HashWatch();
+  const ui = new UI((config) => {
+    hashWatch.set(config);
+    renderer.render(config);
+  }, hashWatch.get());
+
+  hashWatch.onChange = (config) => {
+    ui.set(config);
+    renderer.render(ui.get(true));
+  };
 
   let playing = false;
   let frame = 0;
@@ -33,7 +42,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (playing) {
       frame = 0;
       framestep = 2;
-      baseConfig = getConfig(false);
+      baseConfig = ui.get(false);
       requestAnimationFrame(stepAnimation);
     }
   });
@@ -42,7 +51,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (playing) {
       frame = 0;
       framestep = 1;
-      baseConfig = getConfig(true);
+      baseConfig = ui.get(true);
       requestAnimationFrame(stepAnimation);
     }
   });
