@@ -151,15 +151,22 @@ void main(void) {
         vec3 intensity = (
           v // light through stencil
           * (pos.z > 0.0 ? pow(ifog, length(P) * (1.0 + light.z / P.z)) * m * m : 1.0) // attenuation due to fog on path of light & dispersal of light
-          * (1.0 - ifogstep) // integral of fog over distance travelled by ray this step
           * remaining // integral of fog over ray so far
         );
         vec2 d = texture(shadow, s).xy;
         if (pos.z < d.x) {
-          accum += intensity;
+          accum += (
+            intensity
+            * (1.0 - ifogstep) // integral of fog over distance travelled by ray this step
+          );
         } else if (pos.z < d.y) {
-          accum += dustRef * intensity;
-          remaining *= pow(idustOpac, step);
+          float iduststep = pow(idustOpac, step);
+          accum += (
+            intensity
+            * dustRef
+            * (1.0 - iduststep)
+          );
+          remaining *= iduststep;
         }
       }
       remaining *= ifogstep;
