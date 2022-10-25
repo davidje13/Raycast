@@ -21,7 +21,7 @@ window.addEventListener('DOMContentLoaded', () => {
       maxsize: 0.006,
       updateInterval: 0.1,
     },
-    stencilRenderer: new StencilRenderer(renderLogo, 512),
+    stencilRenderer: StencilRenderer(512, logo),
   });
 
   const hashWatch = new HashWatch();

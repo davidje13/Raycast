@@ -70,6 +70,7 @@ uniform vec3 lightcol;
 uniform float dustRef;
 uniform float idustOpac;
 uniform float stencilDepth;
+uniform float stencilEdge;
 uniform uint randomSeed;
 uniform vec2 lbound;
 uniform vec2 ubound;
@@ -103,11 +104,16 @@ void main(void) {
 
   vec3 surface;
   float tmax;
+  float edge;
   if (ray.z < 0.0) {
-    surface = texture(stencil, (origin.xy - origin.z * ray.xy / ray.z) * 0.5 + 0.5).xyz;
+    vec2 uv = (origin.xy - origin.z * ray.xy / ray.z) * 0.5 + 0.5;
+    vec4 s = texture(stencil, uv);
+    edge = clamp((s.w - 0.5) * stencilEdge / min(fwidth(uv.x), fwidth(uv.y)) + 0.5, 0.0, 1.0);
+    surface = s.xyz;
     tmax = -origin.z / ray.z;
   } else {
     surface = vec3(0.0);
+    edge = 0.0;
     tmax = DEPTH_LIMIT;
   }
 
@@ -124,7 +130,7 @@ void main(void) {
     if (limu.x > 0.0 && limu.x < tmin && checkY(B, ray, limu.x)) { tmin = limu.x; }
     if (limu.y > 0.0 && limu.y < tmin && checkX(B, ray, limu.y)) { tmin = limu.y; }
   }
-  if (surface == vec3(0.0)) {
+  if (surface * edge == vec3(0.0)) {
     if (liml.x > tmin && liml.x < tmax) { tmax = liml.x; }
     if (liml.y > tmin && liml.y < tmax) { tmax = liml.y; }
     if (limu.x > tmin && limu.x < tmax) { tmax = limu.x; }
@@ -141,12 +147,13 @@ void main(void) {
     float ifogstep = pow(ifog, step);
     float dither = random(uvec2(gl_FragCoord.x * 10000.0 + gl_FragCoord.y, randomSeed)).x;
     float t = tmin + step * dither;
+    vec3 clampedSurface = min(surface * lightcol, 1.0) * edge / lightcol;
     for (int i = 0; i < steps; ++i) {
       float m = 1.0 / (A - B * t);
       vec3 pos = origin + ray * t;
       vec3 P = pos - light;
       vec2 s = (P.xy * m + light.xy) * 0.5 + 0.5;
-      vec3 v = pos.z > 0.0 ? texture(stencil, s).xyz : surface;
+      vec3 v = pos.z > 0.0 ? texture(stencil, s).xyz : clampedSurface;
       if (v != vec3(0.0)) {
         vec3 intensity = (
           v // light through stencil
@@ -174,7 +181,7 @@ void main(void) {
     }
   }
 
-  col = vec4((accum + surface * remaining) * lightcol, 1.0);
+  col = vec4(accum * lightcol + min(surface * remaining * lightcol, 1.0) * edge, 1.0);
 }`;
 
 const DUST_UPDATE_VERT = `#version 300 es
@@ -266,7 +273,7 @@ class Renderer {
     this.displayScale = displayScale;
     this.dust = dust;
     this.shadowMapSize = shadowMapSize;
-    this.stencilRenderer = stencilRenderer.init(this.ctx);
+    this.stencilRenderer = stencilRenderer(this.ctx);
     this.shadowMaps = [];
     this.latestConfig = {};
 
@@ -340,6 +347,7 @@ class Renderer {
       .withUniform1f('dustRef')
       .withUniform1f('idustOpac')
       .withUniform1f('stencilDepth')
+      .withUniform1f('stencilEdge')
       .withUniform3f('light')
       .withUniform1i('steps')
       .withUniform1f('ifog')
@@ -452,7 +460,7 @@ class Renderer {
     );
 
     if (!this.stencilInfo || !deepEqual(config.stencil, this.latestConfig.stencil)) {
-      this.stencilInfo = this.stencilRenderer.render(config.stencil);
+      this.stencilInfo = this.stencilRenderer(config.stencil);
     }
     for (let i = 0; i < config.lights.length; ++i) {
       const light = config.lights[i];
@@ -557,15 +565,16 @@ class Renderer {
       dustRef: config.dust.reflectivity,
       idustOpac: Math.pow(1 - config.dust.opacity, 30),
       stencil: { index: 0, texture: this.stencilInfo.texture },
+      stencilEdge: 1 / this.stencilInfo.texturePixelSize,
     });
 
     for (let i = 0; i < config.lights.length; ++i) {
       const { pos, col } = config.lights[i];
       const A = 1 - origin.z / pos.z;
-      const lboundx = this.stencilInfo.minx - pos.x;
-      const lboundy = this.stencilInfo.miny - pos.y;
-      const uboundx = this.stencilInfo.maxx - pos.x;
-      const uboundy = this.stencilInfo.maxy - pos.y;
+      const lboundx = this.stencilInfo.bounds.l - pos.x;
+      const lboundy = this.stencilInfo.bounds.t - pos.y;
+      const uboundx = this.stencilInfo.bounds.r - pos.x;
+      const uboundy = this.stencilInfo.bounds.b - pos.y;
       const sx = origin.x - pos.x;
       const sy = origin.y - pos.y;
       this.renderProgram.set({

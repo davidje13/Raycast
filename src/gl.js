@@ -106,12 +106,15 @@ class Program {
   }
 
   vertexAttribPointer(attributeName, size, type, normalized, stride, offset, { divisor = 0 } = {}) {
-    const { location } = this.attributes.get(attributeName);
-    this.ctx.enableVertexAttribArray(location);
-    if (divisor) {
-      this.ctx.vertexAttribDivisor(location, divisor);
+    const attr = this.attributes.get(attributeName);
+    if (!attr) {
+      throw new Error(`Unknown attr: ${attributeName}`);
     }
-    this.ctx.vertexAttribPointer(location, size, type, normalized, stride, offset);
+    this.ctx.enableVertexAttribArray(attr.location);
+    if (divisor) {
+      this.ctx.vertexAttribDivisor(attr.location, divisor);
+    }
+    this.ctx.vertexAttribPointer(attr.location, size, type, normalized, stride, offset);
     return this;
   }
 
