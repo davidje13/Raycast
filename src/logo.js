@@ -1,7 +1,7 @@
 'use strict';
 
 const logo = pathChain([
-  new ResizingPath2D('M0,0', 5, (p) => Math.pow(p, 0.25) * 9),
+  new ResizingPath2D('M0,0', 5, (p) => Math.pow(p, 0.25) * 9.5),
   20,
   new MyPath2D(`
     M0,0
