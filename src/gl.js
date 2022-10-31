@@ -126,11 +126,9 @@ class Program {
         this.ctx[`uniform${type}`](location, ...v);
       } else if (typeof v === 'object') {
         const { index, texture } = v;
-        this.ctx.activeTexture(GL.TEXTURE0 + index);
         this.ctx.uniform1i(location, index);
-        if (texture) {
-          this.ctx.bindTexture(GL.TEXTURE_2D, texture);
-        }
+        this.ctx.activeTexture(GL.TEXTURE0 + index);
+        this.ctx.bindTexture(GL.TEXTURE_2D, texture);
       } else {
         this.ctx[`uniform${type}`](location, v);
       }

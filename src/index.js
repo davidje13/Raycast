@@ -10,7 +10,7 @@ window.addEventListener('DOMContentLoaded', () => {
     width: 1920,
     height: 1080,
     displayScale: 0.5,
-    shadowMapSize: 1024,
+    shadowMapSize: 2014,
     dust: {
       count: 100000,
       extentx: 1.0,

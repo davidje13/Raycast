@@ -1,38 +1,40 @@
 'use strict';
 
-const GRID_VERT = `#version 300 es
+const RENDER_VERT = `#version 300 es
 precision mediump float;
 
 uniform vec2 fov;
-uniform vec3 origin;
+uniform vec2 uvregion;
 in vec2 v;
-out vec2 p;
+out vec2 pfov;
+out vec2 uv;
 
 void main(void) {
-  p = v * fov;
+  pfov = v * fov;
+  uv = (v * 0.5 + 0.5) * uvregion;
   gl_Position = vec4(v, 0.0, 1.0);
 }`;
 
-const GRID_FRAG = `#version 300 es
+const RENDER_FRAG_GRID = `#version 300 es
 precision mediump float;
 
 uniform vec3 origin;
 uniform mat3 view;
 uniform float linew;
-in vec2 p;
+in vec2 pfov;
 out vec4 col;
 
 void main(void) {
-  float inclination = length(p);
-  vec3 ray = view * -vec3(sin(inclination) * p / inclination, cos(inclination));
+  float inclination = length(pfov);
+  vec3 ray = view * -vec3(sin(inclination) * pfov / inclination, cos(inclination));
 
   if (ray.z < 0.0) {
     float d = origin.z / ray.z;
-    vec2 uv = origin.xy - d * ray.xy;
-    vec2 lim = abs(mod(uv, 1.0) - 0.5);
+    vec2 uvs = origin.xy - d * ray.xy;
+    vec2 lim = abs(mod(uvs, 1.0) - 0.5);
     vec2 thresh = vec2(
-      smoothstep(0.5 - fwidth(uv.x) * linew, 0.5, lim.x),
-      smoothstep(0.5 - fwidth(uv.y) * linew, 0.5, lim.y)
+      smoothstep(0.5 - fwidth(uvs.x) * linew, 0.5, lim.x),
+      smoothstep(0.5 - fwidth(uvs.y) * linew, 0.5, lim.y)
     );
     col = mix(
       vec4(0.00, 0.20, 0.05, 1.0),
@@ -44,21 +46,38 @@ void main(void) {
   }
 }`;
 
-const RENDER_VERT = `#version 300 es
+const RENDER_FRAG_SHAPE = `#version 300 es
 precision mediump float;
 
-uniform vec2 fov;
-in vec2 v;
-out vec2 p;
+uniform sampler2D stencil;
+uniform vec3 origin;
+uniform mat3 view;
+uniform float stencilEdge;
+in vec2 pfov;
+out vec4 shape;
 
 void main(void) {
-  p = v * fov;
-  gl_Position = vec4(v, 0.0, 1.0);
+  float inclination = length(pfov);
+  vec3 ray = view * -vec3(sin(inclination) * pfov / inclination, cos(inclination));
+
+  if (ray.z < 0.0) {
+    vec2 uvs = (origin.xy - ray.xy * origin.z / ray.z) * 0.5 + 0.5;
+    vec4 s = texture(stencil, uvs);
+    float edge = clamp((s.w - 0.5) * max(stencilEdge / min(fwidth(uvs.x), fwidth(uvs.y)), 1.0) + 0.5, 0.0, 1.0);
+    if (edge == 0.0) {
+      shape = vec4(0.0);
+    } else {
+      shape = vec4(s.xyz, edge);
+    }
+  } else {
+    shape = vec4(0.0);
+  }
 }`;
 
-const RENDER_FRAG = `#version 300 es
+const RENDER_FRAG_LIGHT = `#version 300 es
 precision mediump float;
 
+uniform sampler2D shape;
 uniform sampler2D stencil;
 uniform sampler2D shadow;
 uniform vec3 origin;
@@ -70,15 +89,16 @@ uniform vec3 lightcol;
 uniform float dustRef;
 uniform float idustOpac;
 uniform float stencilDepth;
-uniform float stencilEdge;
 uniform uint randomSeed;
 uniform vec2 lbound;
 uniform vec2 ubound;
 uniform float A;
 uniform bool inside;
 
-in vec2 p;
-out vec4 col;
+in vec2 pfov;
+in vec2 uv;
+layout(location = 0) out vec4 outsideCol;
+layout(location = 1) out vec4 insideCol;
 
 const float INF = 1.0 / 0.0;
 const float DEPTH_LIMIT = 10.0;
@@ -98,25 +118,10 @@ bool checkY(float B, vec3 ray, float t) {
 }
 
 void main(void) {
-  float inclination = length(p);
-  vec3 ray = view * -vec3(sin(inclination) * p / inclination, cos(inclination));
+  float inclination = length(pfov);
+  vec3 ray = view * -vec3(sin(inclination) * pfov / inclination, cos(inclination));
+
   float B = ray.z / light.z;
-
-  vec3 surface;
-  float tmax;
-  float edge;
-  if (ray.z < 0.0) {
-    vec2 uv = (origin.xy - origin.z * ray.xy / ray.z) * 0.5 + 0.5;
-    vec4 s = texture(stencil, uv);
-    edge = clamp((s.w - 0.5) * stencilEdge / min(fwidth(uv.x), fwidth(uv.y)) + 0.5, 0.0, 1.0);
-    surface = s.xyz;
-    tmax = -origin.z / ray.z;
-  } else {
-    surface = vec3(0.0);
-    edge = 0.0;
-    tmax = DEPTH_LIMIT;
-  }
-
   vec2 liml = (A * lbound + light.xy - origin.xy) / (B * lbound + ray.xy);
   vec2 limu = (A * ubound + light.xy - origin.xy) / (B * ubound + ray.xy);
 
@@ -130,7 +135,9 @@ void main(void) {
     if (limu.x > 0.0 && limu.x < tmin && checkY(B, ray, limu.x)) { tmin = limu.x; }
     if (limu.y > 0.0 && limu.y < tmin && checkX(B, ray, limu.y)) { tmin = limu.y; }
   }
-  if (surface * edge == vec3(0.0)) {
+  float tmax = (ray.z < 0.0) ? -origin.z / ray.z : DEPTH_LIMIT;
+  vec4 s = texture(shape, uv);
+  if (s.w == 0.0) {
     if (liml.x > tmin && liml.x < tmax) { tmax = liml.x; }
     if (liml.y > tmin && liml.y < tmax) { tmax = liml.y; }
     if (limu.x > tmin && limu.x < tmax) { tmax = limu.x; }
@@ -139,49 +146,72 @@ void main(void) {
     tmax += min(stencilDepth / ray.z, -stencilDepth * 3.0);
   }
 
-  vec3 accum = vec3(0.0);
-  float remaining = pow(ifog, tmin);
-
-  if (tmax > tmin) {
-    float step = (tmax - tmin) / float(steps);
-    float ifogstep = pow(ifog, step);
-    float dither = random(uvec2(gl_FragCoord.x * 10000.0 + gl_FragCoord.y, randomSeed)).x;
-    float t = tmin + step * dither;
-    vec3 clampedSurface = min(surface * lightcol, 1.0) * edge / lightcol;
-    for (int i = 0; i < steps; ++i) {
-      float m = 1.0 / (A - B * t);
-      vec3 pos = origin + ray * t;
-      vec3 P = pos - light;
-      vec2 s = (P.xy * m + light.xy) * 0.5 + 0.5;
-      vec3 v = pos.z > 0.0 ? texture(stencil, s).xyz : clampedSurface;
-      if (v != vec3(0.0)) {
-        vec3 intensity = (
-          v // light through stencil
-          * (pos.z > 0.0 ? pow(ifog, length(P) * (1.0 + light.z / P.z)) * m * m : 1.0) // attenuation due to fog on path of light & dispersal of light
-          * remaining // integral of fog over ray so far
-        );
-        vec2 d = texture(shadow, s).xy;
-        if (pos.z < d.x) {
-          accum += (
-            intensity
-            * (1.0 - ifogstep) // integral of fog over distance travelled by ray this step
-          );
-        } else if (pos.z < d.y) {
-          float iduststep = pow(idustOpac, step);
-          accum += (
-            intensity
-            * dustRef
-            * (1.0 - iduststep)
-          );
-          remaining *= iduststep;
-        }
-      }
-      remaining *= ifogstep;
-      t += step;
-    }
+  if (tmax <= tmin) {
+    discard;
   }
 
-  col = vec4(accum * lightcol + min(surface * remaining * lightcol, 1.0) * edge, 1.0);
+  vec3 overAccum = vec3(0.0);
+  float underAccum = 0.0;
+  float remaining = pow(ifog, tmin);
+
+  float step = (tmax - tmin) / float(steps);
+  float ifogstep = pow(ifog, step);
+  float dither = random(uvec2(gl_FragCoord.x * 10000.0 + gl_FragCoord.y, randomSeed)).x;
+  float t = tmin + step * dither;
+  for (int i = 0; i < steps; ++i) {
+    float m = 1.0 / (A - B * t);
+    vec3 pos = origin + ray * t;
+    vec3 P = pos - light;
+    vec2 s = (P.xy * m + light.xy) * 0.5 + 0.5;
+    vec3 v = texture(stencil, s).xyz;
+    // this optimisation comes at the cost of not showing "dark" dust
+    // (an aesthetic choice which would also require always setting tmin to 0.0)
+    if (pos.z <= 0.0 || v != vec3(0.0)) {
+      vec2 d = texture(shadow, s).xy;
+      if (pos.z < d.y) {
+        float cur;
+        if (pos.z < d.x) {
+          cur = (1.0 - ifogstep); // integral of fog over distance travelled by ray this step
+        } else {
+          float iduststep = pow(idustOpac, step);
+          cur = dustRef * (1.0 - iduststep);
+          remaining *= iduststep;
+        }
+        if (pos.z > 0.0) {
+          overAccum += (
+            v // light through stencil
+            * pow(ifog, length(P) * (1.0 + light.z / P.z)) * m * m // attenuation due to fog on path of light & dispersal of light
+            * remaining // integral of fog over ray so far
+            * cur
+          );
+        } else {
+          underAccum += remaining * cur;
+        }
+      }
+    }
+    remaining *= ifogstep;
+    t += step;
+  }
+  underAccum += remaining;
+
+  outsideCol = vec4(overAccum * lightcol, 1.0);
+  insideCol = vec4(underAccum * s.xyz * lightcol, 1.0);
+}`;
+
+const RENDER_FRAG_MIX = `#version 300 es
+precision mediump float;
+
+uniform sampler2D shape;
+uniform sampler2D outside;
+uniform sampler2D inside;
+in vec2 uv;
+out vec4 col;
+
+void main(void) {
+  float edge = texture(shape, uv).w;
+  vec3 outsideCol = texture(outside, uv).xyz;
+  vec3 insideCol = texture(inside, uv).xyz;
+  col = vec4(mix(outsideCol, min(insideCol + outsideCol, 1.0), edge), 1.0);
 }`;
 
 const DUST_UPDATE_VERT = `#version 300 es
@@ -321,25 +351,91 @@ class Renderer {
       this.shadowProgram.vertexAttribPointer('vPrev', 4, GL.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 0 * Float32Array.BYTES_PER_ELEMENT, { divisor: 4 });
     }
 
-    this.gridProgram = new ProgramBuilder(this.ctx)
-      .withVertexShader(GRID_VERT)
-      .withFragmentShader(GRID_FRAG)
+    this.shapeTex = createEmptyTexture(this.ctx, {
+      wrap: GL.CLAMP_TO_EDGE,
+      mag: GL.NEAREST,
+      min: GL.NEAREST,
+      format: GL.RGBA8,
+      width,
+      height,
+    });
+    this.outsideTex = createEmptyTexture(this.ctx, {
+      wrap: GL.CLAMP_TO_EDGE,
+      mag: GL.NEAREST,
+      min: GL.NEAREST,
+      format: GL.RGBA8,
+      width,
+      height,
+    });
+    this.insideTex = createEmptyTexture(this.ctx, {
+      wrap: GL.CLAMP_TO_EDGE,
+      mag: GL.NEAREST,
+      min: GL.NEAREST,
+      format: GL.RGBA8,
+      width,
+      height,
+    });
+    this.renderShapeBuffer = this.ctx.createFramebuffer();
+    this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, this.renderShapeBuffer);
+    this.ctx.framebufferTexture2D(
+      GL.DRAW_FRAMEBUFFER,
+      GL.COLOR_ATTACHMENT0,
+      GL.TEXTURE_2D,
+      this.shapeTex,
+      0
+    );
+    this.renderLightBuffer = this.ctx.createFramebuffer();
+    this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, this.renderLightBuffer);
+    this.ctx.framebufferTexture2D(
+      GL.DRAW_FRAMEBUFFER,
+      GL.COLOR_ATTACHMENT0,
+      GL.TEXTURE_2D,
+      this.outsideTex,
+      0
+    );
+    this.ctx.framebufferTexture2D(
+      GL.DRAW_FRAMEBUFFER,
+      GL.COLOR_ATTACHMENT1,
+      GL.TEXTURE_2D,
+      this.insideTex,
+      0
+    );
+    this.ctx.drawBuffers([GL.COLOR_ATTACHMENT0, GL.COLOR_ATTACHMENT1]);
+
+    const commonVert = { type: GL.VERTEX_SHADER, src: RENDER_VERT };
+
+    this.renderGridProgram = new ProgramBuilder(this.ctx)
+      .withShader(commonVert)
+      .withFragmentShader(RENDER_FRAG_GRID)
       .bindAttribLocation(QUAD_ATTRIB_LOCATION, 'v')
-      .withUniform2f('fov')
       .withUniform3f('origin')
       .withUniformMatrix3fv('view')
+      .withUniform2f('fov')
       .withUniform1f('linew')
       .link();
 
-    this.renderProgram = new ProgramBuilder(this.ctx)
-      .withVertexShader(RENDER_VERT)
-      .withFragmentShader(RENDER_FRAG)
+    this.renderShapeProgram = new ProgramBuilder(this.ctx)
+      .withShader(commonVert)
+      .withFragmentShader(RENDER_FRAG_SHAPE)
       .bindAttribLocation(QUAD_ATTRIB_LOCATION, 'v')
       .withUniform1i('stencil')
-      .withUniform1i('shadow')
-      .withUniform2f('fov')
       .withUniform3f('origin')
       .withUniformMatrix3fv('view')
+      .withUniform2f('fov')
+      .withUniform1f('stencilEdge')
+      .link();
+
+    this.renderLightProgram = new ProgramBuilder(this.ctx)
+      .withShader(commonVert)
+      .withFragmentShader(RENDER_FRAG_LIGHT)
+      .bindAttribLocation(QUAD_ATTRIB_LOCATION, 'v')
+      .withUniform1i('shape')
+      .withUniform1i('stencil')
+      .withUniform1i('shadow')
+      .withUniform3f('origin')
+      .withUniformMatrix3fv('view')
+      .withUniform2f('fov')
+      .withUniform2f('uvregion')
       .withUniform2f('lbound')
       .withUniform2f('ubound')
       .withUniform1f('A')
@@ -347,12 +443,21 @@ class Renderer {
       .withUniform1f('dustRef')
       .withUniform1f('idustOpac')
       .withUniform1f('stencilDepth')
-      .withUniform1f('stencilEdge')
       .withUniform3f('light')
       .withUniform1i('steps')
       .withUniform1f('ifog')
       .withUniform3f('lightcol')
       .withUniform1ui('randomSeed')
+      .link();
+
+    this.renderMixProgram = new ProgramBuilder(this.ctx)
+      .withShader(commonVert)
+      .withFragmentShader(RENDER_FRAG_MIX)
+      .bindAttribLocation(QUAD_ATTRIB_LOCATION, 'v')
+      .withUniform2f('uvregion')
+      .withUniform1i('shape')
+      .withUniform1i('outside')
+      .withUniform1i('inside')
       .link();
 
     this.quadVertexArray = this.ctx.createVertexArray();
@@ -479,13 +584,6 @@ class Renderer {
     const eyeSep = config.view.eyeSeparation;
     const stereoscopic = Boolean(eyeSep);
 
-    this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, null);
-
-    if (!config.grid) {
-      this.ctx.clearColor(0, 0, 0, 1);
-      this.ctx.clear(GL.COLOR_BUFFER_BIT);
-    }
-
     const w = (this.width * (stereoscopic ? 2 : 1) * config.resolution)|0;
     const h = (this.height * config.resolution)|0;
     if (this.ctx.canvas.width !== w || this.ctx.canvas.height !== h) {
@@ -498,13 +596,10 @@ class Renderer {
     }
 
     if (stereoscopic) {
-      this.ctx.viewport(0, 0, w / 2, h);
-      this._renderEye(config, -eyeSep * 0.5);
-      this.ctx.viewport(w / 2, 0, w / 2, h);
-      this._renderEye(config, eyeSep * 0.5);
+      this._renderEye(config, -eyeSep * 0.5, null, [0, 0, w / 2, h]);
+      this._renderEye(config, eyeSep * 0.5, null, [w / 2, 0, w / 2, h]);
     } else {
-      this.ctx.viewport(0, 0, w, h);
-      this._renderEye(config, 0);
+      this._renderEye(config, 0, null, [0, 0, w, h]);
     }
 
     this.ctx.flush();
@@ -512,7 +607,7 @@ class Renderer {
     this.latestConfig = config;
   }
 
-  _renderEye(config, eyeShift) {
+  _renderEye(config, eyeShift, buffer, viewport) {
     let view = makeViewMatrix(config.view.camera, config.view.focus, config.view.up);
     if (eyeShift) {
       view = makeViewMatrix(
@@ -534,38 +629,40 @@ class Renderer {
     const fovx = (config.view.fovx ?? (config.view.fovy / aspect)) * 0.5;
     const fovy = (config.view.fovy ?? (fovx * aspect)) * -0.5;
 
+    const w = (this.width * config.resolution)|0;
+    const h = (this.height * config.resolution)|0;
+    const uvregion = [w / this.width, h / this.height];
+    this.ctx.bindVertexArray(this.quadVertexArray);
+    this.ctx.viewport(0, 0, w, h);
+
+    this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, this.renderShapeBuffer);
+    this.renderShapeProgram.use({
+      stencil: { index: 0, texture: this.stencilInfo.texture },
+      origin: [origin.x, origin.y, origin.z],
+      view: [false, mat4xyz(view)],
+      fov: [fovx, fovy],
+      stencilEdge: this.stencilInfo.edge,
+    });
+    this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
+
+    this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, this.renderLightBuffer);
+    this.ctx.clearColor(0, 0, 0, 0);
+    this.ctx.clear(GL.COLOR_BUFFER_BIT);
     this.ctx.blendEquation(GL.FUNC_ADD);
     this.ctx.blendFunc(GL.ONE, GL.ONE);
-    this.ctx.disable(GL.BLEND);
-
-    this.ctx.bindVertexArray(this.quadVertexArray);
-
-    if (config.grid) {
-      this.gridProgram.use({
-        fov: [fovx, fovy],
-        view: [false, mat4xyz(view)],
-        origin: [origin.x, origin.y, origin.z],
-        linew: config.resolution * 3,
-      });
-      this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
-    }
-
-    if (!config.lights.length) {
-      return;
-    }
-
     this.ctx.enable(GL.BLEND);
-    this.renderProgram.use({
+    this.renderLightProgram.use({
+      shape: { index: 0, texture: this.shapeTex },
+      stencil: { index: 1, texture: this.stencilInfo.texture },
+      origin: [origin.x, origin.y, origin.z],
+      view: [false, mat4xyz(view)],
       fov: [fovx, fovy],
+      uvregion,
+      dustRef: config.dust.reflectivity,
+      idustOpac: Math.pow(1 - config.dust.opacity, 30),
       stencilDepth: Math.min(this.dust.minz, 0),
       steps: config.lightQuality,
       ifog: 1 - config.fog,
-      view: [false, mat4xyz(view)],
-      origin: [origin.x, origin.y, origin.z],
-      dustRef: config.dust.reflectivity,
-      idustOpac: Math.pow(1 - config.dust.opacity, 30),
-      stencil: { index: 0, texture: this.stencilInfo.texture },
-      stencilEdge: 1 / this.stencilInfo.texturePixelSize,
     });
 
     for (let i = 0; i < config.lights.length; ++i) {
@@ -577,22 +674,44 @@ class Renderer {
       const uboundy = this.stencilInfo.bounds.b - pos.y;
       const sx = origin.x - pos.x;
       const sy = origin.y - pos.y;
-      this.renderProgram.set({
-        light: [pos.x, pos.y, pos.z],
-        lightcol: [col.r, col.g, col.b],
+      this.renderLightProgram.set({
+        shadow: { index: 2, texture: this.shadowMaps[i].texture },
         lbound: [lboundx, lboundy],
         ubound: [uboundx, uboundy],
-        A: A,
+        A,
         inside: (
           sx > lboundx * A && sx < uboundx * A &&
           sy > lboundy * A && sy < uboundy * A
         ),
+        light: [pos.x, pos.y, pos.z],
+        lightcol: [col.r, col.g, col.b],
         randomSeed: (config.time * 977 + i)|0,
-        shadow: { index: 1, texture: this.shadowMaps[i].texture },
       });
       this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
     }
     this.ctx.disable(GL.BLEND);
+
+    this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, buffer);
+    this.ctx.viewport(...viewport);
+    this.renderMixProgram.use({
+      uvregion,
+      shape: { index: 0, texture: this.shapeTex },
+      outside: { index: 1, texture: this.outsideTex },
+      inside: { index: 2, texture: this.insideTex },
+    });
+    this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
+
+    if (config.grid) {
+      this.ctx.enable(GL.BLEND);
+      this.renderGridProgram.use({
+        origin: [origin.x, origin.y, origin.z],
+        view: [false, mat4xyz(view)],
+        fov: [fovx, fovy],
+        linew: config.resolution * 3,
+      });
+      this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
+      this.ctx.disable(GL.BLEND);
+    }
   }
 
   _resizeDisplay(width, height) {

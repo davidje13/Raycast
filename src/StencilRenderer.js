@@ -197,6 +197,7 @@ const StencilRenderer = (size, path) => (ctx) => {
     return {
       texture,
       texturePixelSize: size,
+      edge: blurA,
       bounds: growBounds(clipped.bounds(), blurRGB + 1 / size),
     };
   };
