@@ -204,14 +204,37 @@ precision mediump float;
 uniform sampler2D shape;
 uniform sampler2D outside;
 uniform sampler2D inside;
+uniform float gamma;
+uniform float saturation;
 in vec2 uv;
 out vec4 col;
+
+const float kR = 0.299;
+const float kB = 0.114;
+const float kG = 1.0 - kR - kB;
+const mat3 colmat = mat3(
+  vec3(kR, -0.5 * kR / (1.0 - kB), 0.5),
+  vec3(kG, -0.5 * kG / (1.0 - kB), -0.5 * kG / (1.0 - kR)),
+  vec3(kB, 0.5, -0.5 * kB / (1.0 - kR))
+);
+const mat3 icolmat = inverse(colmat);
+
+vec3 adjust(vec3 c) {
+  vec3 yrb = colmat * c;
+  yrb.x = pow(yrb.x, gamma);
+  yrb.yz *= saturation;
+  return clamp(icolmat * yrb, 0.0, 1.0);
+}
 
 void main(void) {
   float edge = texture(shape, uv).w;
   vec3 outsideCol = texture(outside, uv).xyz;
   vec3 insideCol = texture(inside, uv).xyz;
-  col = vec4(mix(outsideCol, min(insideCol + outsideCol, 1.0), edge), 1.0);
+  col = vec4(mix(
+    adjust(outsideCol),
+    adjust(insideCol + outsideCol),
+    edge
+  ), 1.0);
 }`;
 
 const DUST_UPDATE_VERT = `#version 300 es
@@ -458,6 +481,8 @@ class Renderer {
       .withUniform1i('shape')
       .withUniform1i('outside')
       .withUniform1i('inside')
+      .withUniform1f('gamma')
+      .withUniform1f('saturation')
       .link();
 
     this.quadVertexArray = this.ctx.createVertexArray();
@@ -698,6 +723,8 @@ class Renderer {
       shape: { index: 0, texture: this.shapeTex },
       outside: { index: 1, texture: this.outsideTex },
       inside: { index: 2, texture: this.insideTex },
+      gamma: config.gamma,
+      saturation: config.saturation,
     });
     this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
 

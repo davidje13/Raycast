@@ -154,6 +154,8 @@ function getConfig(full) {
     lights,
     fog: getValue('fog'),
     grid: document.getElementsByName('grid')[0].checked,
+    gamma: getValue('gamma'),
+    saturation: getValue('saturation'),
     view: getView(),
   };
 }
@@ -168,6 +170,8 @@ function setConfig(config) {
   setValue('dustopacity', config.dust?.opacity ?? 0);
   setValue('dustreflectivity', config.dust?.reflectivity ?? 0);
   setValue('fog', config.fog ?? 0);
+  setValue('gamma', config.gamma ?? 1);
+  setValue('saturation', config.saturation ?? 1);
   document.getElementsByName('grid')[0].checked = config.grid;
   setView(config.view ?? {});
 }
