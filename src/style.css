@@ -6,8 +6,12 @@ body {
 
 .output {
   background: black;
-  text-align: center;
-  padding: 10px 0;
+}
+
+.output canvas {
+  display: block;
+  margin: 0 auto;
+  height: 540px;
 }
 
 form {

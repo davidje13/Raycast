@@ -74,13 +74,15 @@ class ProgramBuilder {
     }
     ctx.linkProgram(program);
     ctx.validateProgram(program);
-    if (
-      this.shaders.some(({ compiled }) => !ctx.getShaderParameter(compiled, GL.COMPILE_STATUS)) ||
-      !ctx.getProgramParameter(program, GL.LINK_STATUS) ||
-      !ctx.getProgramParameter(program, GL.VALIDATE_STATUS)
-    ) {
-      const logs = this.shaders.map(({ compiled }) => ctx.getShaderInfoLog(compiled));
-      throw new Error(logs.join('\n\n') + '\n\n' + ctx.getProgramInfoLog(program));
+    if (!ctx.isContextLost()) {
+      if (
+        this.shaders.some(({ compiled }) => !ctx.getShaderParameter(compiled, GL.COMPILE_STATUS)) ||
+        !ctx.getProgramParameter(program, GL.LINK_STATUS) ||
+        !ctx.getProgramParameter(program, GL.VALIDATE_STATUS)
+      ) {
+        const logs = this.shaders.map(({ compiled }) => ctx.getShaderInfoLog(compiled));
+        throw new Error(logs.join('\n\n') + '\n\n' + ctx.getProgramInfoLog(program));
+      }
     }
 
     return new Program(

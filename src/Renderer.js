@@ -312,6 +312,23 @@ const QUAD_ATTRIB_LOCATION = 0;
 
 class Renderer {
   constructor(canvas, { width, height, displayScale, shadowMapSize, dust, stencilRenderer }) {
+    this.width = width;
+    this.height = height;
+    this.displayScale = displayScale;
+    this.dust = dust;
+    this.shadowMapSize = shadowMapSize;
+    this.stencilRenderer = stencilRenderer;
+    this.lastSetConfig = {};
+
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener('webglcontextrestored', () => {
+      this._init();
+      this.render();
+    }, { passive: true });
+
     this.ctx = canvas.getContext('webgl2', {
       // https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#avoid_alphafalse_which_can_be_expensive
       depth: false,
@@ -319,18 +336,16 @@ class Renderer {
       antialias: false,
       preserveDrawingBuffer: false,
     });
-    this._resizeDisplay(width * displayScale, height * displayScale);
 
-    this.width = width;
-    this.height = height;
-    this.displayScale = displayScale;
-    this.dust = dust;
-    this.shadowMapSize = shadowMapSize;
-    this.stencilRenderer = stencilRenderer(this.ctx);
+    this._init();
+  }
+
+  _init() {
     this.shadowMaps = [];
-    this.latestConfig = {};
-
     this.stencilInfo = null;
+    this.renderedConfig = {};
+
+    this.stencilRendererInstance = this.stencilRenderer(this.ctx);
 
     this.dustUpdateProgram = new ProgramBuilder(this.ctx)
       .withVertexShader(DUST_UPDATE_VERT)
@@ -357,7 +372,7 @@ class Renderer {
       this.ctx.bindVertexArray(vertexArrayUpdate);
       const buffer = this.ctx.createBuffer();
       this.ctx.bindBuffer(GL.ARRAY_BUFFER, buffer);
-      this.ctx.bufferData(GL.ARRAY_BUFFER, dust.count * 8 * Float32Array.BYTES_PER_ELEMENT, GL.DYNAMIC_DRAW);
+      this.ctx.bufferData(GL.ARRAY_BUFFER, this.dust.count * 8 * Float32Array.BYTES_PER_ELEMENT, GL.DYNAMIC_DRAW);
       this.dustUpdateProgram
         .vertexAttribPointer('oldPos', 4, GL.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 0 * Float32Array.BYTES_PER_ELEMENT)
         .vertexAttribPointer('oldVel', 4, GL.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 4 * Float32Array.BYTES_PER_ELEMENT);
@@ -379,24 +394,24 @@ class Renderer {
       mag: GL.NEAREST,
       min: GL.NEAREST,
       format: GL.RGBA8,
-      width,
-      height,
+      width: this.width,
+      height: this.height,
     });
     this.outsideTex = createEmptyTexture(this.ctx, {
       wrap: GL.CLAMP_TO_EDGE,
       mag: GL.NEAREST,
       min: GL.NEAREST,
       format: GL.RGBA8,
-      width,
-      height,
+      width: this.width,
+      height: this.height,
     });
     this.insideTex = createEmptyTexture(this.ctx, {
       wrap: GL.CLAMP_TO_EDGE,
       mag: GL.NEAREST,
       min: GL.NEAREST,
       format: GL.RGBA8,
-      width,
-      height,
+      width: this.width,
+      height: this.height,
     });
     this.renderShapeBuffer = this.ctx.createFramebuffer();
     this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, this.renderShapeBuffer);
@@ -576,28 +591,33 @@ class Renderer {
   }
 
   render(config) {
-    if (!config) {
-      config = this.latestConfig;
+    if (config) {
+      this.lastSetConfig = config;
+    } else {
+      config = this.lastSetConfig;
     }
-    if (deepEqual(config, this.latestConfig)) {
+    if (deepEqual(config, this.renderedConfig)) {
       return;
     }
+    if (this.ctx.isContextLost()) {
+      throw new Error('cannot render: context lost');
+    }
 
-    const dustChanged = (config.time !== this.latestConfig.time);
+    const dustChanged = (config.time !== this.renderedConfig.time);
     const dustLerp = this._stepDust(
-      this.latestConfig.time ?? Number.POSITIVE_INFINITY,
+      this.renderedConfig.time ?? Number.POSITIVE_INFINITY,
       config.time,
     );
 
-    if (!this.stencilInfo || !deepEqual(config.stencil, this.latestConfig.stencil)) {
-      this.stencilInfo = this.stencilRenderer(config.stencil);
+    if (!this.stencilInfo || !deepEqual(config.stencil, this.renderedConfig.stencil)) {
+      this.stencilInfo = this.stencilRendererInstance(config.stencil);
     }
     for (let i = 0; i < config.lights.length; ++i) {
       const light = config.lights[i];
       if (
         !this.shadowMaps[i] ||
         dustChanged ||
-        !deepEqual(light.pos, this.latestConfig.lights?.[i]?.pos)
+        !deepEqual(light.pos, this.renderedConfig.lights?.[i]?.pos)
       ) {
         if (!this.shadowMaps[i]) {
           this.shadowMaps[i] = this._createShadowMap();
@@ -614,10 +634,6 @@ class Renderer {
     if (this.ctx.canvas.width !== w || this.ctx.canvas.height !== h) {
       this.ctx.canvas.width = w;
       this.ctx.canvas.height = h;
-      this._resizeDisplay(
-        this.width * (stereoscopic ? 2 : 1) * this.displayScale,
-        this.height * this.displayScale,
-      );
     }
 
     if (stereoscopic) {
@@ -629,7 +645,7 @@ class Renderer {
 
     this.ctx.flush();
 
-    this.latestConfig = config;
+    this.renderedConfig = config;
   }
 
   _renderEye(config, eyeShift, buffer, viewport) {
@@ -741,12 +757,10 @@ class Renderer {
     }
   }
 
-  _resizeDisplay(width, height) {
-    this.ctx.canvas.style.width = `${width}px`;
-    this.ctx.canvas.style.height = `${height}px`;
-  }
-
   getImage() {
+    if (this.ctx.isContextLost()) {
+      throw new Error('cannot getImage: context lost');
+    }
     return this.ctx.canvas.toDataURL('image/png');
   }
 }

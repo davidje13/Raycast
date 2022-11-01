@@ -24,6 +24,12 @@ window.addEventListener('DOMContentLoaded', () => {
     stencilRenderer: StencilRenderer(512, logo),
   });
 
+  window.testLoseContext = () => {
+    const ext = renderer.ctx.getExtension('WEBGL_lose_context');
+    ext.loseContext();
+    window.testRestoreContext = () => ext.restoreContext();
+  };
+
   const hashWatch = new HashWatch();
   const ui = new UI((full) => {
     const config = ui.get(full);
