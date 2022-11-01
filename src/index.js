@@ -9,8 +9,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const renderer = new Renderer(document.getElementById('output'), {
     width: 1920,
     height: 1080,
-    displayScale: 0.5,
-    shadowMapSize: 2014,
+    shadowMapSize: 2048,
     dust: {
       count: 100000,
       extentx: 1.0,

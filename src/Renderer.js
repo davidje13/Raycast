@@ -311,10 +311,9 @@ void main(void) {
 const QUAD_ATTRIB_LOCATION = 0;
 
 class Renderer {
-  constructor(canvas, { width, height, displayScale, shadowMapSize, dust, stencilRenderer }) {
+  constructor(canvas, { width, height, shadowMapSize, dust, stencilRenderer }) {
     this.width = width;
     this.height = height;
-    this.displayScale = displayScale;
     this.dust = dust;
     this.shadowMapSize = shadowMapSize;
     this.stencilRenderer = stencilRenderer;
