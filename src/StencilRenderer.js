@@ -175,6 +175,9 @@ const StencilRenderer = (size, path) => (ctx) => {
     ctx.blendEquation(GL.MAX);
     ctx.blendFunc(GL.ONE, GL.ONE);
     ctx.enable(GL.BLEND);
+    // avoid setting edge pixels, which leak due to CLAMP_TO_EDGE
+    ctx.scissor(1, 1, size - 2, size - 2);
+    ctx.enable(GL.SCISSOR_TEST);
 
     program.use({
       lineCol: [trace, trace, trace, 1],
@@ -193,6 +196,7 @@ const StencilRenderer = (size, path) => (ctx) => {
     }
 
     ctx.disable(GL.BLEND);
+    ctx.disable(GL.SCISSOR_TEST);
 
     return {
       texture,
