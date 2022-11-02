@@ -63,7 +63,10 @@ void main(void) {
   if (ray.z < 0.0) {
     vec2 uvs = (origin.xy - ray.xy * origin.z / ray.z) * 0.5 + 0.5;
     vec4 s = texture(stencil, uvs);
-    float edge = clamp((s.w - 0.5) * max(stencilEdge / min(fwidth(uvs.x), fwidth(uvs.y)), 1.0) + 0.5, 0.0, 1.0);
+    float edge = clamp((s.w - 0.5) * max(stencilEdge / min(
+      length(dFdx(uvs)),
+      length(dFdy(uvs))
+    ), 1.0) + 0.5, 0.0, 1.0);
     if (edge == 0.0) {
       shape = vec4(0.0);
     } else {

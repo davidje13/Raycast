@@ -81,7 +81,7 @@ const StencilRenderer = (size, path) => (ctx) => {
   program.vertexAttribPointer('arcR', 1, GL.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 5 * Float32Array.BYTES_PER_ELEMENT);
 
   const blurRGB = 1 / size;
-  const blurA = 2 / size;
+  const blurA = 8 / size;
   const maxBlur = Math.max(blurRGB, blurA);
 
   const draw = (pathToRender) => {
