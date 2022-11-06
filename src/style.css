@@ -39,6 +39,10 @@ input[type=range] {
   vertical-align: -3px;
 }
 
+input[name=frame] {
+  width: 500px;
+}
+
 .col {
   display: inline-block;
   width: 1em;

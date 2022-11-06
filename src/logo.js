@@ -1,16 +1,76 @@
 'use strict';
 
-const logo = pathChain([
-  new ResizingPath2D('M0,0', 5, (p) => Math.pow(p, 0.25) * 9.5),
-  20,
-  new MyPath2D(`
+const PATH_TRANSFORM = { scale: 1 / 80, dx: 0, dy: -54 / 80 };
+
+function path(def) {
+  return new MyPath2D(def).transform(PATH_TRANSFORM);
+}
+
+function lineWidth(size) {
+  return size * PATH_TRANSFORM.scale;
+}
+
+function delay(lineLengthEquivalent) {
+  return lineLengthEquivalent * PATH_TRANSFORM.scale;
+}
+
+function animateDrawLine(path, lineWidth, colour, drawColour) {
+  return new AnimateFunction(path.length, (time) => {
+    const truncated = path.truncate(time);
+    return [
+      new Line2D(truncated, lineWidth, colour),
+      (drawColour && time < path.length)
+        ? new Line2D(truncated.endPoint(), lineWidth, drawColour)
+        : null,
+    ];
+  });
+}
+
+function animateDotAlongLine(path, lineWidth1, lineWidth2, colour) {
+  const duration = path.length + Math.abs(lineWidth2 - lineWidth1) * 0.5;
+  return new AnimateFunction(duration, (time) => {
+    const pos = time / duration;
+    const lineWidth = (lineWidth2 - lineWidth1) * pos + lineWidth1;
+    if (pos < 0 || pos > 1 || lineWidth <= 0) {
+      return [];
+    }
+    return [new Line2D(path.truncate(pos * path.length).endPoint(), lineWidth, colour)];
+  });
+}
+
+function animateStatic(duration, path, lineWidth, colour) {
+  const line = new Line2D(path, lineWidth, colour);
+  return new AnimateFunction(duration, (time) => {
+    if (time < 0 || time > duration) {
+      return [];
+    }
+    return [line];
+  });
+}
+
+const logo = new AnimateSequence([
+  animateDotAlongLine(
+    path('M0,0'),
+    lineWidth(0),
+    lineWidth(9.5),
+    'white',
+  ).ease({ beginSpeed: 3, endSpeed: 0 }),
+  animateStatic(delay(20), path('M0,0'), lineWidth(9.5), 'white'),
+  animateDrawLine(path(`
     M0,0
     v30
+  `), lineWidth(9.5), 'grey', 'white').ease({ beginSpeed: 0, endSpeed: 0.2 }),
+  animateDrawLine(path(`
+    M0,30
     h6
     a14 14 0 0 0 14,-14
     v-2
     a14 14 0 0 0 -14,-14
-    h-19
+    h-6
+  `), lineWidth(9.5), 'grey', 'white').ease({ beginSpeed: 0.2 }),
+  animateDrawLine(path(`
+    M0,0
+    h-13
     a7 7 0 0 0 -7,7
     v36
     a7 7 0 0 0 7,7
@@ -24,56 +84,68 @@ const logo = pathChain([
     a7 7 0 0 0 7,7
     h26
     a7 7 0 0 1 7,7
-    v11
-  `, 9.5),
-  [
-    new MyPath2D(`
+    v11.375
+  `), lineWidth(9.5), 'grey', 'white'),
+  new AnimateParallel([
+    animateDotAlongLine(
+      path(`
+        M0,88.375
+        v0.625
+      `),
+      lineWidth(9.5),
+      lineWidth(6),
+      'white',
+    ).ease({ beginSpeed: 0, endSpeed: 2 }),
+    animateDrawLine(path(`
       M0,89
       h9
       a7 7 0 0 1 7,7
       v9
-    `, 8.25),
-    new MyPath2D(`
+    `), lineWidth(8.25), 'grey', 'white'),
+    animateDrawLine(path(`
       M0,89
       h-9
       a7 7 0 0 0 -7,7
       v9
-    `, 8.25),
-  ],
-  [
-    [
-      [
-        new MyPath2D(`
+    `), lineWidth(8.25), 'grey', 'white'),
+  ]),
+  new AnimateParallel([
+    new AnimateSequence([
+      new AnimateParallel([
+        animateDrawLine(path(`
           M14,105
           h-14
-        `, 4.5),
-        new MyPath2D(`
+        `), lineWidth(4.5), 'grey', 'white'),
+        animateDrawLine(path(`
           M-14,105
           h14
-        `, 4.5),
-      ],
-      new MyPath2D(`
+        `), lineWidth(4.5), 'grey', 'white'),
+      ]),
+      animateDrawLine(path(`
         M0,104.5
         v-11.5
-      `, 4.5),
-      new ResizingPath2D('M0,93', 20, (p) => (1 - Math.pow(p, 0.25)) * 4.5),
-    ],
-    [
-      [
-        new MyPath2D(`
+      `), lineWidth(4.5), 'grey', 'white'),
+      animateDotAlongLine(path('M0,93'), lineWidth(4.5), lineWidth(0), 'white')
+        .ease({ endSpeed: 2 }),
+    ]),
+    new AnimateSequence([
+      new AnimateParallel([
+        animateDrawLine(path(`
           M16,105
           v10
           a14 14 0 0 1 -14,14
           h-2
-        `, 8.25),
-        new MyPath2D(`
+        `), lineWidth(8.25), 'grey', 'white'),
+        animateDrawLine(path(`
           M-16,105
           v10
           a14 14 0 0 0 14,14
           h2
-        `, 8.25),
-      ],
-      new ResizingPath2D('M0,129', 20, (p) => (1 - Math.pow(p, 0.25)) * 8.25),
-    ],
-  ],
-]).transform({ scale: 1 / 80, dx: 0, dy: -54 / 80 });
+        `), lineWidth(8.25), 'grey', 'white'),
+      ]),
+      animateDotAlongLine(path('M0,129'), lineWidth(8.25), lineWidth(0), 'white')
+        .ease({ endSpeed: 2 }),
+    ]),
+  ]),
+  new AnimateDelay(delay(20)),
+]);

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Animation Easing</title>
+    <link rel="stylesheet" href="../src/style.css" />
+    <style>
+body { background: gray; }
+canvas { background: white; border: 1px solid black; }
+output { font-weight: bold; }
+    </style>
+    <script src="../src/math.js"></script>
+    <script src="../src/animation.js"></script>
+    <script>
+class MockAnim extends Animate {
+  constructor(duration) { super(duration); }
+  at(time) { return time; }
+}
+
+function getValue(name) {
+  return Number.parseFloat(document.getElementsByName(name)[0].value);
+}
+
+function setValue(name, v) {
+  document.getElementsByName(name)[0].value = v;
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  const c0 = document.getElementById('timing');
+  const c1 = document.getElementById('gradient');
+  const ctx0 = c0.getContext('2d');
+  const ctx1 = c1.getContext('2d');
+
+  function draw(anim) {
+    const d = anim.duration;
+    const ind = anim.baseAnimation.duration;
+
+    ctx0.lineWidth = 1;
+    ctx0.strokeStyle = 'red';
+    ctx0.beginPath();
+    ctx0.moveTo(0, c0.height - anim.bezier.p0 * ind);
+    ctx0.lineTo(d / 3, c0.height - anim.bezier.p1 * ind);
+    ctx0.lineTo(d * 2 / 3, c0.height - anim.bezier.p2 * ind);
+    ctx0.lineTo(d, c0.height - anim.bezier.p3 * ind);
+    ctx0.stroke();
+
+    ctx0.lineWidth = 2;
+    ctx0.strokeStyle = 'black';
+    ctx1.lineWidth = 2;
+    ctx1.strokeStyle = 'red';
+    ctx0.beginPath();
+    ctx1.beginPath();
+    ctx0.moveTo(0, c0.height);
+    ctx1.moveTo(0, c1.height / 2);
+
+    let lastV = 0;
+    for (let t = 0; t <= c0.width && t <= d; ++t) {
+      const v = anim.at(t);
+      const d = v - lastV;
+      lastV = v;
+
+      ctx0.lineTo(t, c0.height - v);
+      ctx1.lineTo(t, c1.height / 2 - d * c1.height / 4);
+    }
+    ctx0.stroke();
+    ctx1.stroke();
+  }
+
+  function update() {
+    const ind = getValue('indur');
+    const config = { beginSpeed: getValue('v0'), endSpeed: getValue('v1') };
+    setValue('oindur', ind.toFixed(3));
+    setValue('ov0', config.beginSpeed.toFixed(3));
+    setValue('ov1', config.endSpeed.toFixed(3));
+
+    const anim = new MockAnim(ind).ease(config);
+    setValue('outdur', anim.duration.toFixed(3));
+
+    ctx0.clearRect(0, 0, c0.width, c0.height);
+    ctx1.clearRect(0, 0, c1.width, c1.height);
+
+    draw(anim);
+  }
+  for (const i of document.getElementsByTagName('input')) {
+    i.addEventListener('input', update);
+    i.addEventListener('change', update);
+  }
+  update();
+});
+    </script>
+  </head>
+  <body>
+    <form action="#">
+      <label>Wrapped Duration <input name="indur" type="range" value="500" min="0" max="500" step="any" /></label>
+      <label>v<sub>0</sub> <input name="v0" type="range" value="1" min="0" max="4" step="any" /></label>
+      <label>v<sub>1</sub> <input name="v1" type="range" value="1" min="0" max="4" step="any" /></label>
+      <br />
+      <br />
+      Wrapped Duration: <output name="oindur"></output>
+      v0: <output name="ov0"></output>
+      v1: <output name="ov1"></output>
+      Eased Duration: <output name="outdur"></output>
+      <br />
+      <br />
+      <canvas id="timing" width="1000" height="500"></canvas>
+      <canvas id="gradient" width="1000" height="200"></canvas>
+    </form>
+  </body>
+</html>

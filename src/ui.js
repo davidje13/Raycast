@@ -9,7 +9,7 @@ function getValue(name) {
 
 function setValue(name, v) {
   const o = document.getElementsByName(name)[0];
-  return o.value = v;
+  o.value = v;
 }
 
 function getLights() {

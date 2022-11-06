@@ -177,7 +177,7 @@ const STEP_TYPES = new Map([
 ]);
 
 class MyPath2D {
-  constructor(def, radius = 0) {
+  constructor(def) {
     if (typeof def === 'string') {
       let cur = { x: Number.NaN, y: Number.NaN };
       this.steps = def
@@ -202,7 +202,6 @@ class MyPath2D {
     } else {
       throw new Error('Invalid MyPath2D construction');
     }
-    this.radius = radius;
     this.length = 0;
     for (const step of this.steps) {
       this.length += step.length;
@@ -210,17 +209,11 @@ class MyPath2D {
   }
 
   bounds() {
-    if (!this.steps.length) {
-      return BOUNDS_NONE;
-    }
-    return growBounds(this.steps.map((s) => s.bounds()).reduce(combineBounds), this.radius);
+    return this.steps.map((s) => s.bounds()).reduce(combineBounds, BOUNDS_NONE);
   }
 
   transform({ scale = 1, dx = 0, dy = 0 }) {
-    return new MyPath2D(
-      this.steps.map((step) => step.transform(scale, dx, dy)),
-      this.radius * scale,
-    );
+    return new MyPath2D(this.steps.map((step) => step.transform(scale, dx, dy)));
   }
 
   truncate(l) {
@@ -239,129 +232,62 @@ class MyPath2D {
         break;
       }
     }
-    return new MyPath2D(truncSteps, this.radius);
+    return new MyPath2D(truncSteps);
   }
 
   endPoint() {
-    if (!this.steps.length) {
-      return MyPath2D.EMPTY;
+    if (this.length === 0) {
+      return this;
     }
     const end = this.steps[this.steps.length - 1];
-    return new MyPath2D([new Move(end.x, end.y)], this.radius);
+    return new MyPath2D([new Move(end.x, end.y)]);
   }
 
   visit(fn) {
     for (const step of this.steps) {
-      fn(step, this);
+      fn(step);
     }
   }
 }
 
 MyPath2D.EMPTY = new MyPath2D([], 0);
 
-class ResizingPath2D extends MyPath2D {
-  constructor(def, duration, radFn, pos = 1) {
-    super(def, radFn(pos));
-    this.duration = duration;
-    this.pos = pos;
-    this.radFn = radFn;
-    this.length = duration * pos;
+class Line2D {
+  constructor(path, lineWidth, colour) {
+    this.path = path;
+    this.lineWidth = lineWidth;
+    this.colour = colour;
   }
 
-  transform({ scale = 1, dx = 0, dy = 0 }) {
-    return new ResizingPath2D(
-      this.steps.map((step) => step.transform(scale, dx, dy)),
-      this.duration * scale,
-      (p) => this.radFn(p) * scale,
-      this.pos,
-    );
-  }
-
-  truncate(l) {
-    if (l >= this.length) {
-      return this;
-    }
-    if (l < 0) {
-      return MyPath2D.EMPTY;
-    }
-    return new ResizingPath2D(this.steps, this.duration, this.radFn, l / this.duration);
-  }
-}
-
-function pathChain(tree) {
-  const flat = [];
-  const load = (paths, start) => {
-    if (Array.isArray(paths)) {
-      for (const path of paths) {
-        if (Array.isArray(path)) {
-          start = Math.max(...path.map((p) => load(p, start)));
-        } else {
-          start = load(path, start);
-        }
-      }
-    } else if (typeof paths === 'number') {
-      start += paths;
-    } else {
-      flat.push({ start, path: paths });
-      start += paths.length;
-    }
-    return start;
-  };
-  load(tree, 0);
-  return new MultiPath2D(flat);
-}
-
-class MultiPath2D {
-  constructor(paths) {
-    this.paths = paths;
-    this.length = Math.max(0, ...paths.map((p) => p.start + p.path.length));
+  transform(t) {
+    return new Line2D(this.path.transform(t), this.lineWidth * (t.scale ?? 1), this.colour);
   }
 
   bounds() {
-    if (!this.paths.length) {
-      return BOUNDS_NONE;
-    }
-    return this.paths.map(({ path }) => path.bounds()).reduce(combineBounds);
-  }
-
-  transform(opts) {
-    return new MultiPath2D(this.paths.map((p) => ({
-      start: p.start * (opts.scale ?? 1),
-      path: p.path.transform(opts),
-    })));
-  }
-
-  truncate(l) {
-    if (l >= this.length) {
-      return this;
-    }
-    if (l < 0) {
-      return MultiPath2D.EMPTY;
-    }
-    const truncated = [];
-    for (const p of this.paths) {
-      if (p.start <= l) {
-        truncated.push({ start: p.start, path: p.path.truncate(l - p.start) });
-      }
-    }
-    return new MultiPath2D(truncated);
-  }
-
-  endPoints() {
-    const ends = [];
-    for (const p of this.paths) {
-      if (p.start + p.path.length >= this.length - 1e-6) {
-        ends.push({ start: this.length, path: p.path.endPoint() });
-      }
-    }
-    return new MultiPath2D(ends);
+    return growBounds(this.path.bounds(), this.lineWidth * 0.5);
   }
 
   visit(fn) {
-    for (const { path } of this.paths) {
-      path.visit(fn);
-    }
+    this.path.visit((step) => fn(step, this));
   }
 }
 
-MultiPath2D.EMPTY = new MultiPath2D([]);
+class MultiLine2D {
+  constructor(lines) {
+    this.lines = lines.filter((line) => line);
+  }
+
+  transform(t) {
+    return new MultiLine2D(this.lines.map((line) => line.transform(t)));
+  }
+
+  bounds() {
+    return this.lines.map((line) => line.bounds()).reduce(combineBounds, BOUNDS_NONE);
+  }
+
+  visit(fn) {
+    for (const line of this.lines) {
+      line.visit(fn);
+    }
+  }
+}
