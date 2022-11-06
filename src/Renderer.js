@@ -616,15 +616,22 @@ class Renderer {
     }
     for (let i = 0; i < config.lights.length; ++i) {
       const light = config.lights[i];
+      const pos = mix3(
+        light.pos,
+        { ...light.pos, ...this.stencilInfo.focusPos },
+        config.lightFollow,
+      );
       if (
         !this.shadowMaps[i] ||
         dustChanged ||
-        !deepEqual(light.pos, this.renderedConfig.lights?.[i]?.pos)
+        !this.renderedConfig.lights?.[i] ||
+        !deepEqual(pos, this.shadowMaps[i].pos)
       ) {
         if (!this.shadowMaps[i]) {
           this.shadowMaps[i] = this._createShadowMap();
         }
-        this._updateShadowMap(this.shadowMaps[i], light.pos, dustLerp);
+        this._updateShadowMap(this.shadowMaps[i], pos, dustLerp);
+        this.shadowMaps[i].pos = pos;
       }
     }
 
@@ -651,7 +658,12 @@ class Renderer {
   }
 
   _renderEye(config, eyeShift, buffer, viewport) {
-    let view = makeViewMatrix(config.view.camera, config.view.focus, config.view.up);
+    const focus = mix3(
+      config.view.focus,
+      { ...config.view.focus, ...this.stencilInfo.focusPos },
+      config.view.focusFollow,
+    );
+    let view = makeViewMatrix(config.view.camera, focus, config.view.up);
     if (eyeShift) {
       view = makeViewMatrix(
         {
@@ -659,7 +671,7 @@ class Renderer {
           y: config.view.camera.y + view[1] * eyeShift,
           z: config.view.camera.z + view[2] * eyeShift,
         },
-        config.view.focus,
+        focus,
         {
           x: view[4],
           y: view[5],
@@ -709,7 +721,8 @@ class Renderer {
     });
 
     for (let i = 0; i < config.lights.length; ++i) {
-      const { pos, col } = config.lights[i];
+      const { col } = config.lights[i];
+      const { pos, texture } = this.shadowMaps[i];
       const A = 1 - origin.z / pos.z;
       const lboundx = this.stencilInfo.bounds.l - pos.x;
       const lboundy = this.stencilInfo.bounds.t - pos.y;
@@ -718,7 +731,7 @@ class Renderer {
       const sx = origin.x - pos.x;
       const sy = origin.y - pos.y;
       this.renderLightProgram.set({
-        shadow: { index: 2, texture: this.shadowMaps[i].texture },
+        shadow: { index: 2, texture },
         lbound: [lboundx, lboundy],
         ubound: [uboundx, uboundy],
         A,

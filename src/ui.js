@@ -104,6 +104,7 @@ function getView() {
   return {
     fovy: getValue('fovy') * DEG2RAD,
     eyeSeparation: getValue('eyesep'),
+    focusFollow: getValue('focusFollow'),
     camera: {
       x: getValue('camerax'),
       y: getValue('cameray'),
@@ -125,6 +126,7 @@ function getView() {
 function setView(view) {
   setValue('fovy', (view.fovy || ((view.fovx ?? view.fov) * 0.75) || 60) / DEG2RAD);
   setValue('eyesep', view.eyeSeparation ?? 0);
+  setValue('focusFollow', view.focusFollow ?? 0);
   setValue('camerax', view.camera.x ?? 0);
   setValue('cameray', view.camera.y ?? 0);
   setValue('cameraz', view.camera.z ?? 0);
@@ -152,6 +154,7 @@ function getConfig(full) {
       reflectivity: getValue('dustreflectivity'),
     },
     lights,
+    lightFollow: getValue('lightFollow'),
     fog: getValue('fog'),
     grid: document.getElementsByName('grid')[0].checked,
     gamma: getValue('gamma'),
@@ -163,6 +166,7 @@ function getConfig(full) {
 function setConfig(config) {
   setLights(config.lights ?? []);
   setLightCluster(lightsToCluster(config.lights ?? []));
+  setValue('lightFollow', config.lightFollow ?? 0);
 
   setValue('time', config.time ?? 0);
   setValue('frame', config.stencil?.frame ?? 0);

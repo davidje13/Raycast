@@ -195,11 +195,26 @@ const StencilRenderer = (size, animation) => (ctx) => {
     ctx.disable(GL.BLEND);
     ctx.disable(GL.SCISSOR_TEST);
 
+    const activePos = { x: 0, y: 0 };
+    let activeWeight = 0;
+    lines.visit((step, { lineWidth, colour }) => {
+      if (colour === 'white') {
+        activePos.x += step.x * lineWidth;
+        activePos.y += step.y * lineWidth;
+        activeWeight += lineWidth;
+      }
+    });
+    if (activeWeight > 0) {
+      activePos.x /= activeWeight;
+      activePos.y /= activeWeight;
+    }
+
     return {
       texture,
       texturePixelSize: size,
       edge: blurA,
       bounds: growBounds(lines.bounds(), blurRGB + 1 / size),
+      focusPos: activePos,
     };
   };
 };

@@ -44,6 +44,10 @@ function mix(a, b, v) {
   return a * (1 - v) + b * v;
 }
 
+function mix3(a, b, v) {
+  return { x: mix(a.x, b.x, v), y: mix(a.y, b.y, v), z: mix(a.z, b.z, v) };
+}
+
 function hermiteInterpolate(v, d) {
   if (v < -d) {
     return 0;
