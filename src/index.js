@@ -1,7 +1,5 @@
 'use strict';
 
-// TODO: camera animation along path
-
 const dpr = window.devicePixelRatio;
 window.devicePixelRatio = 1;
 
@@ -20,7 +18,7 @@ window.addEventListener('DOMContentLoaded', () => {
       maxsize: 0.006,
       updateInterval: 0.1,
     },
-    stencilRenderer: StencilRenderer(512, logo),
+    stencilRenderer: StencilRenderer(512),
   });
 
   window.testLoseContext = () => {
@@ -35,58 +33,51 @@ window.addEventListener('DOMContentLoaded', () => {
     if (full) {
       hashWatch.setJSON(config);
     }
-    renderer.render(config);
+    renderer.render(snapshot(config));
   }, hashWatch.getJSON());
 
   hashWatch.onChange = () => {
     const config = hashWatch.getJSON();
     ui.set(config);
-    renderer.render(ui.get(true));
+    renderer.render(snapshot(ui.get(true)));
   };
 
-  let playing = false;
+  let animation = null;
   let frame = 0;
-  let framestep;
-  const totalFrames = 1000;
-  const fps = 30;
-  let baseConfig = {};
+  let fps;
   document.getElementById('preview').addEventListener('click', () => {
-    playing = !playing;
-    if (playing) {
-      frame = 0;
-      framestep = 2;
-      baseConfig = ui.get(false);
-      requestAnimationFrame(stepAnimation);
+    if (animation) {
+      animation = null;
+      return;
     }
+    frame = 0;
+    fps = 60;
+    animation = getAnimatedScene(ui.get(false));
+    requestAnimationFrame(stepAnimation);
   });
   document.getElementById('play').addEventListener('click', () => {
-    playing = !playing;
-    if (playing) {
-      frame = 0;
-      framestep = 1;
-      baseConfig = ui.get(true);
-      requestAnimationFrame(stepAnimation);
+    if (animation) {
+      animation = null;
+      return;
     }
+    frame = 0;
+    fps = 120;
+    animation = getAnimatedScene(ui.get(true));
+    requestAnimationFrame(stepAnimation);
   });
   function stepAnimation() {
-    if (!playing) {
+    if (!animation) {
       return;
     }
-    renderer.render({
-      ...baseConfig,
-      time: frame / fps,
-      stencil: {
-        ...baseConfig.stencil,
-        frame: frame / totalFrames,
-      },
-    });
+    const time = frame / fps;
+    renderer.render(animation.at(time));
     const imageData = renderer.getImage(); // force sync flush (TODO: record to video)
     document.getElementById('outputImg').src = imageData;
-    if (frame >= totalFrames) {
-      playing = false;
-      return;
+    if (time >= animation.duration) {
+      animation = null;
+    } else {
+      ++frame;
+      requestAnimationFrame(stepAnimation);
     }
-    frame += framestep;
-    requestAnimationFrame(stepAnimation);
   }
 });

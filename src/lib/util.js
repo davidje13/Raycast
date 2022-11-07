@@ -24,6 +24,47 @@ function deepEqual(a, b) {
   return ks.every((k) => deepEqual(a[k], b[k]));
 }
 
+function deepVisit(o, visitor) {
+  const n = visitor(o);
+  if (n !== o || !n || typeof n !== 'object') {
+    return n;
+  }
+  if (Array.isArray(n)) {
+    const r = [];
+    let change = false;
+    for (const v of n) {
+      const vn = deepVisit(v, visitor);
+      r.push(vn);
+      change ||= (vn !== v);
+    }
+    return change ? r : n;
+  }
+  const r = Object.create(Object.getPrototypeOf(n));
+  let change = false;
+  for (const k in n) {
+    if (!(k in r)) {
+      const v = n[k];
+      const vn = deepVisit(v, visitor);
+      r[k] = vn;
+      change ||= (vn !== v);
+    }
+  }
+  return change ? r : n;
+}
+
+function deepFilter(o, condition) {
+  if (condition(o)) {
+    return [o];
+  }
+  const r = [];
+  if (o && typeof o === 'object') {
+    for (const k in o) {
+      r.push(...deepFilter(o[k], condition));
+    }
+  }
+  return r;
+}
+
 function spectrumCol(from, to, peak, width) {
   from = Math.max(from, peak - width);
   to = Math.min(to, peak + width);

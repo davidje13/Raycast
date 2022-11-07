@@ -48,7 +48,7 @@ function animateStatic(duration, path, lineWidth, colour) {
   });
 }
 
-const logo = new AnimateSequence([
+const logo = new AnimateWrap(new AnimateBuildup([
   animateDotAlongLine(
     path('M0,0'),
     lineWidth(0),
@@ -86,7 +86,7 @@ const logo = new AnimateSequence([
     a7 7 0 0 1 7,7
     v11.375
   `), lineWidth(9.5), 'grey', 'white'),
-  new AnimateParallel([
+  new AnimateAll([
     animateDotAlongLine(
       path(`
         M0,88.375
@@ -109,9 +109,9 @@ const logo = new AnimateSequence([
       v9
     `), lineWidth(8.25), 'grey', 'white'),
   ]),
-  new AnimateParallel([
-    new AnimateSequence([
-      new AnimateParallel([
+  new AnimateAll([
+    new AnimateBuildup([
+      new AnimateAll([
         animateDrawLine(path(`
           M14,105
           h-14
@@ -128,8 +128,8 @@ const logo = new AnimateSequence([
       animateDotAlongLine(path('M0,93'), lineWidth(4.5), lineWidth(0), 'white')
         .ease({ endSpeed: 2 }),
     ]),
-    new AnimateSequence([
-      new AnimateParallel([
+    new AnimateBuildup([
+      new AnimateAll([
         animateDrawLine(path(`
           M16,105
           v10
@@ -147,5 +147,4 @@ const logo = new AnimateSequence([
         .ease({ endSpeed: 2 }),
     ]),
   ]),
-  new AnimateDelay(delay(20)),
-]);
+]), (lines) => new MultiLine2D(lines));

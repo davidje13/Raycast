@@ -39,7 +39,7 @@ input[type=range] {
   vertical-align: -3px;
 }
 
-input[name=frame] {
+input[name=time] {
   width: 500px;
 }
 

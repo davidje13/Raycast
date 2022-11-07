@@ -146,7 +146,6 @@ function getConfig(full) {
     lightQuality: full ? 70 : Math.ceil(100 / lights.length),
     time: getValue('time'),
     stencil: {
-      frame: getValue('frame'),
       trace: getValue('trace'),
     },
     dust: {
@@ -169,7 +168,6 @@ function setConfig(config) {
   setValue('lightFollow', config.lightFollow ?? 0);
 
   setValue('time', config.time ?? 0);
-  setValue('frame', config.stencil?.frame ?? 0);
   setValue('trace', config.stencil?.trace ?? 1);
   setValue('dustopacity', config.dust?.opacity ?? 0);
   setValue('dustreflectivity', config.dust?.reflectivity ?? 0);

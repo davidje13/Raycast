@@ -113,11 +113,11 @@ function velocityBezier(v0, v1, vmid) {
   // d1(1) = v1 * s
   // d1(solveD2(0)) = vmid * s
 
-  // p0 = 0;
+  // p0 = 0
   // p1 = p0 + v0 * s / 3
   // p2 = p3 - v1 * s / 3
-  // p3 = 1;
-  // A = v0 + v1;
+  // p3 = 1
+  // A = v0 + v1
 
   // solveD2(0) = (-p2 + 2 * p1 - p0) / (p3 - 3 * p2 + 3 * p1 - p0)
   // = (-(1 - v1 * s / 3) + 2 * v0 * s / 3) / (1 - 3 * (1 - v1 * s / 3) + 3 * v0 * s / 3)
@@ -142,6 +142,31 @@ function velocityBezier(v0, v1, vmid) {
   // = (s * s * (A * v0 - A * A - v0 * v0) + s * A * 6 - 9) / (3 * A * s - 6)
 
   // d1(solveD2(0)) = vmid * s
+
+  // s * s * (A * v0 - A * A - v0 * v0) + s * A * 6 - 9 = n * s * (3 * A * s - 6)
+  // s * s * (A * v0 - A * A - v0 * v0 - 3 * n * A) + 6 * s * (A + n) - 9 = 0
+
+  // (-b+/-sqrt(b^2-4ac))/2a
+  // a = -(v0 * v0 + v0 * v1 + v1 * v1 + 3 * (v0 + v1) * n)
+  // b = 6 * (v0 + v1 + n)
+  // c = -9
+
+  // = (
+  //   -6 * (v0 + v1 + n)
+  //   +/- sqrt((6 * (v0 + v1 + n)) * (6 * (v0 + v1 + n)) - 4 * -(v0 * v0 + v0 * v1 + v1 * v1 + 3 * (v0 + v1) * n) * -9)
+  // ) / (2 * -(v0 * v0 + v0 * v1 + v1 * v1 + 3 * (v0 + v1) * n))
+
+  // = 3 * (
+  //   v0 + v1 + n
+  //   +/- sqrt((v0 + v1 + n) * (v0 + v1 + n) - (v0 * v0 + v0 * v1 + v1 * v1 + 3 * (v0 + v1) * n))
+  // ) / (v0 * v0 + v0 * v1 + v1 * v1 + 3 * (v0 + v1) * n)
+
+  // (v0 + v1 + n) * (v0 + v1 + n) - (v0 * v0 + v0 * v1 + v1 * v1 + 3 * (v0 + v1) * n)
+  // + v1 * v0
+  // + n * n
+  // - v0 * n
+  // - v1 * n
+  // (n - v0) * (n - v1)
 
   // thanks, https://www.wolframalpha.com/input?i=solve+%28s%5E2%28av-a%5E2-v%5E2%29%2B6as-9%29%2F%283as-6%29%3Ds*n+for+s
 

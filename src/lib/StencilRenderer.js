@@ -43,7 +43,7 @@ void main(void) {
   );
 }`;
 
-const StencilRenderer = (size, animation) => (ctx) => {
+const StencilRenderer = (size) => (ctx) => {
   const texture = createEmptyTexture(ctx, {
     wrap: GL.CLAMP_TO_EDGE,
     mag: GL.LINEAR,
@@ -172,9 +172,7 @@ const StencilRenderer = (size, animation) => (ctx) => {
     ctx.drawArrays(GL.TRIANGLES, 0, vertexCount);
   };
 
-  return ({ frame, trace }) => {
-    const lines = new MultiLine2D(animation.at(animation.duration * frame));
-
+  return ({ shape, trace }) => {
     ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, buffer);
     ctx.viewport(0, 0, size, size);
     ctx.clearColor(0, 0, 0, 0);
@@ -190,14 +188,14 @@ const StencilRenderer = (size, animation) => (ctx) => {
       iblurRGB: 0.5 / blurRGB,
       iblurA: 0.5 / blurA,
     });
-    draw(lines, { white: [1, 1, 1, 1], grey: [trace, trace, trace, 1] });
+    draw(shape, { white: [1, 1, 1, 1], grey: [trace, trace, trace, 1] });
 
     ctx.disable(GL.BLEND);
     ctx.disable(GL.SCISSOR_TEST);
 
     const activePos = { x: 0, y: 0 };
     let activeWeight = 0;
-    lines.visit((step, { lineWidth, colour }) => {
+    shape.visit((step, { lineWidth, colour }) => {
       if (colour === 'white') {
         activePos.x += step.x * lineWidth;
         activePos.y += step.y * lineWidth;
@@ -213,7 +211,7 @@ const StencilRenderer = (size, animation) => (ctx) => {
       texture,
       texturePixelSize: size,
       edge: blurA,
-      bounds: growBounds(lines.bounds(), blurRGB + 1 / size),
+      bounds: growBounds(shape.bounds(), blurRGB + 1 / size),
       focusPos: activePos,
     };
   };

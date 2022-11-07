@@ -1,3 +1,5 @@
+'use strict';
+
 function combineBounds(a, b) {
   return {
     l: Math.min(a.l, b.l),
@@ -274,7 +276,11 @@ class Line2D {
 
 class MultiLine2D {
   constructor(lines) {
-    this.lines = lines.filter((line) => line);
+    if (Array.isArray(lines)) {
+      this.lines = lines.flat(Number.POSITIVE_INFINITY).filter((line) => line);
+    } else {
+      this.lines = lines ? [lines] : [];
+    }
   }
 
   transform(t) {
