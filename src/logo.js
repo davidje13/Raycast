@@ -54,12 +54,13 @@ const logo = new AnimateWrap(new AnimateBuildup([
     lineWidth(0),
     lineWidth(9.5),
     'white',
-  ).ease({ beginSpeed: 3, endSpeed: 0 }),
+  ).ease({ beginSpeed: 2, endSpeed: 0 }),
   animateStatic(delay(20), path('M0,0'), lineWidth(9.5), 'white'),
   animateDrawLine(path(`
     M0,0
     v30
-  `), lineWidth(9.5), 'grey', 'white').ease({ beginSpeed: 0, endSpeed: 0.2 }),
+  `), lineWidth(9.5), 'grey', 'white').ease({ beginSpeed: 0, endSpeed: 0 }),
+  animateStatic(delay(10), path('M0,30'), lineWidth(9.5), 'white'),
   animateDrawLine(path(`
     M0,30
     h6
@@ -67,7 +68,7 @@ const logo = new AnimateWrap(new AnimateBuildup([
     v-2
     a14 14 0 0 0 -14,-14
     h-6
-  `), lineWidth(9.5), 'grey', 'white').ease({ beginSpeed: 0.2 }),
+  `), lineWidth(9.5), 'grey', 'white').ease({ beginSpeed: 0 }),
   animateDrawLine(path(`
     M0,0
     h-13
@@ -76,6 +77,9 @@ const logo = new AnimateWrap(new AnimateBuildup([
     a7 7 0 0 0 7,7
     h46
     a7 7 0 0 0 7,-7
+  `), lineWidth(9.5), 'grey', 'white'),
+  animateDrawLine(path(`
+    M40,43
     v-56
     a7 7 0 0 0 -7,-7
     h-66
@@ -83,6 +87,9 @@ const logo = new AnimateWrap(new AnimateBuildup([
     v76
     a7 7 0 0 0 7,7
     h26
+  `), lineWidth(9.5), 'grey', 'white').ease({ midSpeed: 2 }),
+  animateDrawLine(path(`
+    M-7,70
     a7 7 0 0 1 7,7
     v11.375
   `), lineWidth(9.5), 'grey', 'white'),

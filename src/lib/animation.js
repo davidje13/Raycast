@@ -5,6 +5,10 @@ class Animate {
     this.duration = duration;
   }
 
+  atClamped(time) {
+    return this.at(Math.max(0, Math.min(this.duration, time)));
+  }
+
   ease(config) {
     return new AnimateEase(this, config);
   }
@@ -61,12 +65,12 @@ class AnimateScale extends Animate {
 }
 
 class AnimateEase extends Animate {
-  constructor(baseAnimation, { beginSpeed = 1, endSpeed = 1 }) {
+  constructor(baseAnimation, { beginSpeed = 1, midSpeed = 1, endSpeed = 1 }) {
     super(0);
     const { bezier, scale } = velocityBezier(
       beginSpeed,
       endSpeed,
-      1,
+      midSpeed,
     );
     this.duration = baseAnimation.duration * scale;
     this.baseAnimation = baseAnimation;
@@ -110,7 +114,7 @@ class AnimateSequence extends Animate {
       }
       time -= a.duration;
     }
-    if (time === 0 && this.animations.length > 0) {
+    if (time < 1e-6 && this.animations.length > 0) {
       const a = this.animations[this.animations.length - 1];
       return a.at(a.duration);
     }

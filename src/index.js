@@ -16,7 +16,7 @@ window.addEventListener('DOMContentLoaded', () => {
       maxz: 2.0,
       minsize: 0.002,
       maxsize: 0.006,
-      updateInterval: 0.1,
+      updateInterval: 0.2,
     },
     stencilRenderer: StencilRenderer(512),
   });
@@ -45,16 +45,31 @@ window.addEventListener('DOMContentLoaded', () => {
   let animation = null;
   let frame = 0;
   let fps;
+  let time0;
+
   document.getElementById('preview').addEventListener('click', () => {
     if (animation) {
       animation = null;
       return;
     }
-    frame = 0;
-    fps = 60;
     animation = getAnimatedScene(ui.get(false));
-    requestAnimationFrame(stepAnimation);
+    time0 = Date.now();
+    requestAnimationFrame(stepPreviewAnimation);
   });
+  function stepPreviewAnimation() {
+    if (!animation) {
+      return;
+    }
+    const time = (Date.now() - time0) * 0.001;
+    renderer.render(animation.atClamped(time));
+    renderer.getImage(); // force sync flush
+    if (time >= animation.duration) {
+      animation = null;
+    } else {
+      requestAnimationFrame(stepPreviewAnimation);
+    }
+  }
+
   document.getElementById('play').addEventListener('click', () => {
     if (animation) {
       animation = null;
@@ -70,7 +85,7 @@ window.addEventListener('DOMContentLoaded', () => {
       return;
     }
     const time = frame / fps;
-    renderer.render(animation.at(time));
+    renderer.render(animation.atClamped(time));
     const imageData = renderer.getImage(); // force sync flush (TODO: record to video)
     document.getElementById('outputImg').src = imageData;
     if (time >= animation.duration) {

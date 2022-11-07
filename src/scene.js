@@ -1,13 +1,14 @@
 'use strict';
 
-const SCENE_DURATION = 20;
+const SCENE_DURATION = 40;
 
 function snapshot(config) {
-  return getAnimatedScene(config).at(config.time);
+  return getAnimatedScene(config).atClamped(config.time);
 }
 
 function getAnimatedScene(config) {
-  const logoDuration = SCENE_DURATION * 0.8;
+  const logoDuration = SCENE_DURATION * 0.85;
+  const configurableMoment = logoDuration * 0.9;
   const finalCameraZ = 8;
   return new AnimateAll({
     ...config,
@@ -19,56 +20,65 @@ function getAnimatedScene(config) {
     dust: {
       ...config.dust,
       reflectivity: smoothBezierSequence([
-        [SCENE_DURATION * 0.85, config.dust.reflectivity],
+        [configurableMoment, config.dust.reflectivity],
         [SCENE_DURATION, 0],
       ]),
     },
     lightFollow: smoothBezierSequence([
       [0, config.lightFollow],
-      [logoDuration * 0.9, 0],
+      [configurableMoment, 0],
     ]),
     fog: smoothBezierSequence([
-      [SCENE_DURATION * 0.85, config.fog],
+      [configurableMoment, config.fog],
       [SCENE_DURATION, 0],
     ]),
     view: {
       ...config.view,
       fovy: smoothBezierSequence([
-        [logoDuration * 0.85, config.view.fovy],
+        [logoDuration * 0.6, config.view.fovy],
         [SCENE_DURATION, Math.atan(3 / finalCameraZ)],
       ]),
       focusFollow: smoothBezierSequence([
         [logoDuration * 0.2, config.view.focusFollow],
-        [logoDuration * 0.6, 0],
+        [logoDuration * 0.5, 0],
       ]),
       camera: {
         ...config.view.camera,
         x: smoothBezierSequence([
           [0, 0.1],
           [logoDuration * 0.5, config.view.camera.x],
-          [logoDuration * 0.9, config.view.camera.x],
+          [configurableMoment, config.view.camera.x],
           [SCENE_DURATION, 0],
         ]),
         y: smoothBezierSequence([
           [logoDuration * 0.05, -0.5],
           [logoDuration * 0.15, 0.2],
-          [logoDuration * 0.4, 0.2],
-          [logoDuration * 0.9, config.view.camera.y],
+          [logoDuration * 0.45, 0.1],
+          [configurableMoment, config.view.camera.y, 0.1],
           [SCENE_DURATION, 0],
         ]),
         z: smoothBezierSequence([
           [0, 0.1],
-          [logoDuration * 0.3, 0.4, 0.2],
-          [logoDuration * 0.9, config.view.camera.z, 0.5],
+          [logoDuration * 0.3, 0.4, 0.1],
+          [configurableMoment, config.view.camera.z, 0.5],
           [SCENE_DURATION, finalCameraZ],
         ]),
       },
       focus: {
         ...config.view.focus,
         y: smoothBezierSequence([
-          [logoDuration * 0.15, -0.6],
-          [logoDuration * 0.9, config.view.focus.y],
+          [logoDuration * 0.1, -0.6],
+          [logoDuration * 0.3, -0.1],
+          [logoDuration * 0.5, -0.2],
+          [configurableMoment, config.view.focus.y],
           [SCENE_DURATION, 0],
+        ]),
+      },
+      up: {
+        ...config.view.up,
+        y: smoothBezierSequence([
+          [configurableMoment, config.view.up.y],
+          [SCENE_DURATION, -1],
         ]),
       },
     },
