@@ -3,6 +3,7 @@
   <head>
     <title>Raycast</title>
     <link rel="stylesheet" href="src/style.css" />
+    <link rel="icon" href="favicon.png" />
     <script src="src/lib/util.js"></script>
     <script src="src/lib/math.js"></script>
     <script src="src/lib/path.js"></script>
@@ -27,6 +28,7 @@
         <label>Time <input name="time" type="range" value="35" min="0" max="40" step="any" /></label>
         <button type="button" id="preview">Preview</button>
         <button type="button" id="play">Play</button>
+        <button type="button" id="record" hidden>Record</button>
       </fieldset>
       <fieldset>
         <legend>Scene</legend>
@@ -182,6 +184,5 @@
         <label>Z <input name="upz" type="range" value="1" min="-1" max="1" step="any" /></label>
       </fieldset>
     </form>
-    <img id="outputImg" />
   </body>
 </html>

@@ -42,18 +42,32 @@ window.addEventListener('DOMContentLoaded', () => {
     renderer.render(snapshot(ui.get(true)));
   };
 
+  const fps = 120;
   let animation = null;
-  let frame = 0;
-  let fps;
+  let frame;
   let time0;
+  let recording = false;
+
+  function startAnimation(full) {
+    animation = getAnimatedScene(ui.get(full));
+    frame = 0;
+    time0 = Date.now();
+    recording = false;
+  }
+
+  function uploadImage(frame, image) {
+    fetch('/', { method: 'POST', body: frame + ':' + image }).catch((e) => {
+      animation = null;
+      console.error('Failed to upload image', e);
+    });
+  }
 
   document.getElementById('preview').addEventListener('click', () => {
     if (animation) {
       animation = null;
       return;
     }
-    animation = getAnimatedScene(ui.get(false));
-    time0 = Date.now();
+    startAnimation(false);
     requestAnimationFrame(stepPreviewAnimation);
   });
   function stepPreviewAnimation() {
@@ -75,9 +89,7 @@ window.addEventListener('DOMContentLoaded', () => {
       animation = null;
       return;
     }
-    frame = 0;
-    fps = 120;
-    animation = getAnimatedScene(ui.get(true));
+    startAnimation(true);
     requestAnimationFrame(stepAnimation);
   });
   function stepAnimation() {
@@ -86,8 +98,10 @@ window.addEventListener('DOMContentLoaded', () => {
     }
     const time = frame / fps;
     renderer.render(animation.atClamped(time));
-    const imageData = renderer.getImage(); // force sync flush (TODO: record to video)
-    document.getElementById('outputImg').src = imageData;
+    const image = renderer.getImage();
+    if (recording) {
+      uploadImage(frame, image);
+    }
     if (time >= animation.duration) {
       animation = null;
     } else {
@@ -95,4 +109,19 @@ window.addEventListener('DOMContentLoaded', () => {
       requestAnimationFrame(stepAnimation);
     }
   }
+
+  document.getElementById('record').addEventListener('click', () => {
+    if (animation) {
+      animation = null;
+      return;
+    }
+    startAnimation(true);
+    recording = true;
+    requestAnimationFrame(stepAnimation);
+  });
+  fetch('/check').then((r) => {
+    if (r.status === 200) {
+      document.getElementById('record').hidden = false;
+    }
+  });
 });
