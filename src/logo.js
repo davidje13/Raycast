@@ -129,11 +129,13 @@ const logo = new AnimateWrap(new AnimateBuildup([
         `), lineWidth(4.5), 'grey', 'white'),
       ]),
       animateDrawLine(path(`
-        M0,104.5
-        v-11.5
+        M0,105
+        v-12
       `), lineWidth(4.5), 'grey', 'white'),
-      animateDotAlongLine(path('M0,93'), lineWidth(4.5), lineWidth(0), 'white')
-        .ease({ endSpeed: 2 }),
+      animateDotAlongLine(path(`
+        M0,93
+        v0,-4
+      `), lineWidth(4.5), lineWidth(0), 'white'),
     ]),
     new AnimateBuildup([
       new AnimateAll([

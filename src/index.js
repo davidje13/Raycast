@@ -4,6 +4,12 @@ const dpr = window.devicePixelRatio;
 window.devicePixelRatio = 1;
 
 window.addEventListener('DOMContentLoaded', () => {
+  const fps = 120;
+  let animation = null;
+  let frame;
+  let time0;
+  let recording = false;
+
   const renderer = new Renderer(document.getElementById('output'), {
     width: 1920,
     height: 1080,
@@ -21,6 +27,12 @@ window.addEventListener('DOMContentLoaded', () => {
     stencilRenderer: StencilRenderer(512),
   });
 
+  function render(config) {
+    const snap = snapshot(config);
+    document.title = `f${(snap.time * fps).toFixed(1)} - Raycast`;
+    renderer.render(snap);
+  }
+
   window.testLoseContext = () => {
     const ext = renderer.ctx.getExtension('WEBGL_lose_context');
     ext.loseContext();
@@ -33,26 +45,25 @@ window.addEventListener('DOMContentLoaded', () => {
     if (full) {
       hashWatch.setJSON(config);
     }
-    renderer.render(snapshot(config));
+    render(config);
   }, hashWatch.getJSON());
 
   hashWatch.onChange = () => {
     const config = hashWatch.getJSON();
     ui.set(config);
-    renderer.render(snapshot(ui.get(true)));
+    render(ui.get(true));
   };
-
-  const fps = 120;
-  let animation = null;
-  let frame;
-  let time0;
-  let recording = false;
 
   function startAnimation(full) {
     animation = getAnimatedScene(ui.get(full));
     frame = 0;
     time0 = Date.now();
     recording = false;
+  }
+
+  function stopAnimation() {
+    animation = null;
+    render(ui.get(true));
   }
 
   function uploadImage(frame, image) {
@@ -64,9 +75,9 @@ window.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('preview').addEventListener('click', () => {
     if (animation) {
-      animation = null;
-      return;
+      return stopAnimation();
     }
+    document.title = 'Preview - Raycast';
     startAnimation(false);
     requestAnimationFrame(stepPreviewAnimation);
   });
@@ -86,8 +97,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('play').addEventListener('click', () => {
     if (animation) {
-      animation = null;
-      return;
+      return stopAnimation();
     }
     startAnimation(true);
     requestAnimationFrame(stepAnimation);
@@ -100,7 +110,10 @@ window.addEventListener('DOMContentLoaded', () => {
     renderer.render(animation.atClamped(time));
     const image = renderer.getImage();
     if (recording) {
+      document.title = `${(time * 100 / animation.duration).toFixed(1)}% - Recording - Raycast`;
       uploadImage(frame, image);
+    } else {
+      document.title = `${(time * 100 / animation.duration).toFixed(1)}% - Playing - Raycast`;
     }
     if (time >= animation.duration) {
       animation = null;
@@ -112,8 +125,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('record').addEventListener('click', () => {
     if (animation) {
-      animation = null;
-      return;
+      return stopAnimation();
     }
     startAnimation(true);
     recording = true;

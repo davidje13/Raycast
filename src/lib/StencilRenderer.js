@@ -118,7 +118,8 @@ const StencilRenderer = (size) => (ctx) => {
       if (a1 === a2) {
         return;
       }
-      const extr = outerRadius / Math.cos(Math.abs(a2 - a1) * 0.5);
+      // extr is constant regardless of actual angle to avoid rounding errors causing misalignment of triangles
+      const extr = outerRadius / Math.cos(Math.PI / 8);
       vertexData.push(cx, cy, 0, 0, ar, lr, col[0], col[1], col[2], col[3]);
       const dx1 = Math.cos(a1) * extr;
       const dy1 = Math.sin(a1) * extr;
