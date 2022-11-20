@@ -68,8 +68,8 @@ window.addEventListener('DOMContentLoaded', () => {
 
   function uploadImage(frame, image) {
     fetch('/', { method: 'POST', body: frame + ':' + image }).catch((e) => {
-      animation = null;
       console.error('Failed to upload image', e);
+      stopAnimation();
     });
   }
 
@@ -116,6 +116,7 @@ window.addEventListener('DOMContentLoaded', () => {
       document.title = `${(time * 100 / animation.duration).toFixed(1)}% - Playing - Raycast`;
     }
     if (time >= animation.duration) {
+      document.title = 'Complete - Raycast';
       animation = null;
     } else {
       ++frame;
