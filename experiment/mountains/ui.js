@@ -29,6 +29,7 @@ const INPUT_TYPES = {
       dom: l,
       get: () => Number.parseFloat(input.value) * scale,
       set: (v) => { input.value = String(v / scale); },
+      mapDefault: (v) => v * scale,
     };
   },
   'boolean': ({ label }, _, onChange) => {
@@ -69,11 +70,20 @@ class UI {
       fs.appendChild(legend);
       for (const row of rows) {
         for (const { type, key, def, ...typeConfig } of row) {
-          const { dom, get, set } = INPUT_TYPES[type](typeConfig, configInput, configChange);
+          const { dom, get, set, mapDefault } = INPUT_TYPES[type](
+            typeConfig,
+            configInput,
+            configChange,
+          );
           if (dom) {
             fs.appendChild(dom);
           }
-          this.inputs.push({ key: key.split('.'), get, set, def });
+          this.inputs.push({
+            key: key.split('.'),
+            get,
+            set,
+            def: mapDefault?.(def) ?? def,
+          });
         }
         fs.appendChild(document.createElement('br'));
       }
