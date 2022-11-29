@@ -1,5 +1,7 @@
 'use strict';
 
+const xyzTo3f = (v) => [v.x, v.y, v.z];
+
 const sub3 = (v1, v2) => ({
   x: v1.x - v2.x,
   y: v1.y - v2.y,

@@ -65,6 +65,36 @@ function deepFilter(o, condition) {
   return r;
 }
 
+function deepWrite(o, [key, ...path], value) {
+  if (!o || typeof o !== 'object') {
+    throw new Error('invalid target: ' + o);
+  }
+  if (!path.length) {
+    if ((key in o) && !Object.prototype.hasOwnProperty.call(o, key)) {
+      throw new Error('invalid property: ' + key);
+    }
+    o[key] = value;
+    return;
+  }
+  if (!Object.prototype.hasOwnProperty.call(o, key)) {
+    if (key in o) {
+      throw new Error('invalid property: ' + key);
+    }
+    o[key] = {};
+  }
+  deepWrite(o[key], path, value);
+}
+
+function deepRead(o, [key, ...path]) {
+  if (!key) {
+    return o;
+  }
+  if (!o || typeof o !== 'object' || !Object.prototype.hasOwnProperty.call(o, key)) {
+    return null;
+  }
+  return deepRead(o[key], path);
+}
+
 function spectrumCol(from, to, peak, width) {
   from = Math.max(from, peak - width);
   to = Math.min(to, peak + width);
