@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Raycast Mountains</title>
+    <link rel="stylesheet" href="../../src/style.css" />
+    <script src="../../src/lib/util.js"></script>
+    <script src="../../src/lib/math.js"></script>
+    <script src="../../src/lib/animation.js"></script>
+    <script src="../../src/lib/gl.js"></script>
+    <script src="../../src/lib/ui.js"></script>
+    <script src="./Renderer.js"></script>
+    <script src="../../src/lib/HashWatch.js"></script>
+
+    <script src="./index.js"></script>
+  </head>
+  <body>
+    <section class="output">
+      <canvas id="output"></canvas>
+    </section>
+    <form action="#">
+      <fieldset hidden>
+        <legend>Animation</legend>
+        <label>Time <input name="time" type="range" value="35" min="0" max="40" step="any" /></label>
+        <button type="button" id="preview">Preview</button>
+        <button type="button" id="play">Play</button>
+        <button type="button" id="record" hidden>Record</button>
+      </fieldset>
+      <fieldset>
+        <legend>Scene</legend>
+        <label>Terrain Height <input name="trace" type="range" value="1.8" min="0" max="5" step="any" /></label>
+        <label>Water Height <input name="fog" type="range" value="0.25" min="0" max="3" step="any" /></label>
+        <br />
+        <label>Flatness <input name="gamma" type="range" value="4.0" min="0" max="10" step="any" /></label>
+        <label>Cliff Flatness <input name="saturation" type="range" value="0.4" min="0" max="1" step="any" /></label>
+        <label>Peak Flatness <input name="dustopacity" type="range" value="0.1" min="-0.5" max="2" step="any" /></label>
+        <label hidden>Reflectivity <input name="dustreflectivity" type="range" value="0.9" min="0" max="2" step="any" /></label>
+        <label hidden><input name="grid" type="checkbox" /> Grid</label>
+      </fieldset>
+      <fieldset hidden>
+        <legend>Light Cluster</legend>
+        <label>X <input name="lightCx" type="range" value="0" min="-5" max="5" step="any" data-target="light-group" /></label>
+        <label>Y <input name="lightCy" type="range" value="-0.675" min="-5" max="5" step="any" data-target="light-group" /></label>
+        <label>&theta;<sub>R</sub> <input name="lightCa1" type="range" value="23.4" min="0" max="90" step="any" data-target="light-group" /></label>
+        <label>&theta;<sub>B</sub> <input name="lightCa2" type="range" value="30.5" min="0" max="90" step="any" data-target="light-group" /></label>
+        <br />
+        <label>R <input name="lightCr" type="range" value="1" min="0" max="1" step="any" data-target="light-group" /></label>
+        <label>G <input name="lightCg" type="range" value="1" min="0" max="1" step="any" data-target="light-group" /></label>
+        <label>B <input name="lightCb" type="range" value="1" min="0" max="1" step="any" data-target="light-group" /></label>
+        <label>Exposure <input name="lightCe" type="range" value="25" min="0" max="100" step="any" data-target="light-group" /></label>
+        <br />
+        <label>Follow Stencil <input name="lightFollow" type="range" value="0.8" min="0" max="1" step="any" /></label>
+        <label>Count <input name="lightN" type="range" value="5" min="0" max="9" step="1" data-target="light-group" /></label>
+        <details>
+          <summary>Custom</summary>
+          <fieldset>
+            <legend><label><input name="light1" type="checkbox" checked /> Light 1</label></legend>
+            <label>X <input name="light1x" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>Y <input name="light1y" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>&theta; <input name="light1a" type="range" value="0" min="0" max="90" step="any" /></label>
+            <br />
+            <label>R <input name="light1r" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>G <input name="light1g" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>B <input name="light1b" type="range" value="0" min="0" max="100" step="any" /></label>
+            <span id="light1c" class="col"></span>
+          </fieldset>
+          <fieldset>
+            <legend><label><input name="light2" type="checkbox" checked /> Light 2</label></legend>
+            <label>X <input name="light2x" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>Y <input name="light2y" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>&theta; <input name="light2a" type="range" value="0" min="0" max="90" step="any" /></label>
+            <br />
+            <label>R <input name="light2r" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>G <input name="light2g" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>B <input name="light2b" type="range" value="0" min="0" max="100" step="any" /></label>
+            <span id="light2c" class="col"></span>
+          </fieldset>
+          <fieldset>
+            <legend><label><input name="light3" type="checkbox" checked /> Light 3</label></legend>
+            <label>X <input name="light3x" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>Y <input name="light3y" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>&theta; <input name="light3a" type="range" value="0" min="0" max="90" step="any" /></label>
+            <br />
+            <label>R <input name="light3r" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>G <input name="light3g" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>B <input name="light3b" type="range" value="0" min="0" max="100" step="any" /></label>
+            <span id="light3c" class="col"></span>
+          </fieldset>
+          <fieldset>
+            <legend><label><input name="light4" type="checkbox" checked /> Light 4</label></legend>
+            <label>X <input name="light4x" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>Y <input name="light4y" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>&theta; <input name="light4a" type="range" value="0" min="0" max="90" step="any" /></label>
+            <br />
+            <label>R <input name="light4r" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>G <input name="light4g" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>B <input name="light4b" type="range" value="0" min="0" max="100" step="any" /></label>
+            <span id="light4c" class="col"></span>
+          </fieldset>
+          <fieldset>
+            <legend><label><input name="light5" type="checkbox" checked /> Light 5</label></legend>
+            <label>X <input name="light5x" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>Y <input name="light5y" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>&theta; <input name="light5a" type="range" value="0" min="0" max="90" step="any" /></label>
+            <br />
+            <label>R <input name="light5r" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>G <input name="light5g" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>B <input name="light5b" type="range" value="0" min="0" max="100" step="any" /></label>
+            <span id="light5c" class="col"></span>
+          </fieldset>
+          <fieldset>
+            <legend><label><input name="light6" type="checkbox" checked /> Light 6</label></legend>
+            <label>X <input name="light6x" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>Y <input name="light6y" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>&theta; <input name="light6a" type="range" value="0" min="0" max="90" step="any" /></label>
+            <br />
+            <label>R <input name="light6r" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>G <input name="light6g" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>B <input name="light6b" type="range" value="0" min="0" max="100" step="any" /></label>
+            <span id="light6c" class="col"></span>
+          </fieldset>
+          <fieldset>
+            <legend><label><input name="light7" type="checkbox" checked /> Light 7</label></legend>
+            <label>X <input name="light7x" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>Y <input name="light7y" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>&theta; <input name="light7a" type="range" value="0" min="0" max="90" step="any" /></label>
+            <br />
+            <label>R <input name="light7r" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>G <input name="light7g" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>B <input name="light7b" type="range" value="0" min="0" max="100" step="any" /></label>
+            <span id="light7c" class="col"></span>
+          </fieldset>
+          <fieldset>
+            <legend><label><input name="light8" type="checkbox" checked /> Light 8</label></legend>
+            <label>X <input name="light8x" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>Y <input name="light8y" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>&theta; <input name="light8a" type="range" value="0" min="0" max="90" step="any" /></label>
+            <br />
+            <label>R <input name="light8r" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>G <input name="light8g" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>B <input name="light8b" type="range" value="0" min="0" max="100" step="any" /></label>
+            <span id="light8c" class="col"></span>
+          </fieldset>
+          <fieldset>
+            <legend><label><input name="light9" type="checkbox" checked /> Light 9</label></legend>
+            <label>X <input name="light9x" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>Y <input name="light9y" type="range" value="0" min="-5" max="5" step="any" /></label>
+            <label>&theta; <input name="light9a" type="range" value="0" min="0" max="90" step="any" /></label>
+            <br />
+            <label>R <input name="light9r" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>G <input name="light9g" type="range" value="0" min="0" max="100" step="any" /></label>
+            <label>B <input name="light9b" type="range" value="0" min="0" max="100" step="any" /></label>
+            <span id="light9c" class="col"></span>
+          </fieldset>
+        </details>
+      </fieldset>
+      <fieldset>
+        <legend>Camera</legend>
+        <label>X <input name="camerax" type="range" value="0" min="-5" max="5" step="any" /></label>
+        <label>Y <input name="cameray" type="range" value="1.75" min="-5" max="5" step="any" /></label>
+        <label>Z <input name="cameraz" type="range" value="2.5" min="0" max="4" step="any" style="width: 600px" /></label>
+        <br />
+        <label>FOV<sub>y</sub> <input name="fovy" type="range" value="50" min="0" max="180" step="any" /></label>
+        <label>Eye Separation <input name="eyesep" type="range" value="0" min="0" max="0.1" step="any" /></label>
+      </fieldset>
+      <fieldset>
+        <legend>Focus</legend>
+        <label>X <input name="focusx" type="range" value="0" min="-2" max="2" step="any" /></label>
+        <label>Y <input name="focusy" type="range" value="0" min="-2" max="2" step="any" /></label>
+        <label>Z <input name="focusz" type="range" value="0" min="0" max="2" step="any" /></label>
+        <br />
+        <label hidden>Follow Stencil <input name="focusFollow" type="range" value="1" min="0" max="1" step="any" /></label>
+      </fieldset>
+      <fieldset>
+        <legend>Up</legend>
+        <label>X <input name="upx" type="range" value="0" min="-1" max="1" step="any" /></label>
+        <label>Y <input name="upy" type="range" value="0" min="-1" max="1" step="any" /></label>
+        <label>Z <input name="upz" type="range" value="1" min="-1" max="1" step="any" /></label>
+      </fieldset>
+    </form>
+  </body>
+</html>

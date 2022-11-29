@@ -28,8 +28,9 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   function render(config) {
-    const snap = snapshot(config);
-    document.title = `f${(snap.time * fps).toFixed(1)} - Raycast`;
+    const time = config.time;
+    const snap = getAnimatedScene(addAnimation(config)).atClamped(time);
+    document.title = `f${(time * fps).toFixed(1)} - Raycast`;
     renderer.render(snap);
   }
 
@@ -55,7 +56,7 @@ window.addEventListener('DOMContentLoaded', () => {
   };
 
   function startAnimation(full) {
-    animation = getAnimatedScene(ui.get(full));
+    animation = getAnimatedScene(addAnimation(ui.get(full)));
     frame = 0;
     time0 = Date.now();
     recording = false;

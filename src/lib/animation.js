@@ -142,3 +142,45 @@ class AnimateBuildup extends Animate {
     return result;
   }
 }
+
+function deserialiseAnimation(config) {
+  return deepVisit(config, (o) => {
+    if (!o || typeof o !== 'object' || !Array.isArray(o.animation)) {
+      return o;
+    }
+    return smoothBezierSequence(o.animation);
+  });
+}
+
+function smoothBezierSequence(parts) {
+  const curves = [];
+  let lastTime = 0;
+  let lastV = parts[0][1];
+  let lastGrad = 0;
+  for (let i = 0; i < parts.length; ++i) {
+    const [time, v, grad = 0] = parts[i];
+    const scale = (time - lastTime) / 3;
+    curves.push(bezierFn(
+      time - lastTime,
+      lastV,
+      lastV + lastGrad * scale,
+      v - grad * scale,
+      v,
+    ));
+    lastTime = time;
+    lastV = v;
+    lastGrad = grad;
+  }
+  return new AnimateSequence(curves);
+}
+
+function bezierFn(duration, a, b, c, d) {
+  if (b === undefined) {
+    return new AnimateConstant(duration, a);
+  }
+  const bezier = new CubicBezier(a, b, c, d);
+  return new AnimateFunction(
+    duration,
+    (time) => bezier.at(Math.max(0, Math.min(1, time / duration))),
+  );
+}

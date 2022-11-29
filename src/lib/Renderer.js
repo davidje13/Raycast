@@ -605,10 +605,10 @@ class Renderer {
       throw new Error('cannot render: context lost');
     }
 
-    const dustChanged = (config.time !== this.renderedConfig.time);
+    const dustChanged = (config.dust.time !== this.renderedConfig.dust?.time);
     const dustLerp = this._stepDust(
-      this.renderedConfig.time ?? Number.POSITIVE_INFINITY,
-      config.time,
+      this.renderedConfig.dust?.time ?? Number.POSITIVE_INFINITY,
+      config.dust.time,
     );
 
     if (!this.stencilInfo || !deepEqual(config.stencil, this.renderedConfig.stencil)) {
@@ -741,7 +741,7 @@ class Renderer {
         ),
         light: [pos.x, pos.y, pos.z],
         lightcol: [col.r, col.g, col.b],
-        randomSeed: (config.time * 977 + i)|0,
+        randomSeed: (config.dust.time * 977 + i)|0,
       });
       this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
     }
