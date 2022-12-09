@@ -9,6 +9,7 @@ const FORM_CONFIG = [
     rows: [
       [
         { key: 'resolution', type: 'const', value: 0.25, fullValue: 1 },
+        { label: 'Colorspace', key: 'colorspace', type: 'option', options: ['srgb', 'display-p3'], def: 'display-p3' },
         { label: 'Grid', key: 'grid', type: 'boolean', def: false },
       ],
     ],
@@ -34,12 +35,23 @@ const FORM_CONFIG = [
     rows: [
       [
         { label: 'Height', key: 'waterHeight', type: 'number', min: 0, max: 3, def: 0.72 },
+        { label: 'Fog', key: 'waterFog', type: 'number', min: 0, max: 20, def: 7 },
       ],
       [
         { label: 'Ripple Zoom', key: 'ripple.zoom', type: 'number', min: 0, max: 400, def: 80 },
         { label: 'Ripple Height', key: 'ripple.height', type: 'number', min: 0, max: 0.002, def: 0.0005 },
         { label: 'Ripple Shift X', key: 'ripple.shift.x', type: 'number', min: -10, max: 10, def: 0 },
         { label: 'Ripple Shift Y', key: 'ripple.shift.y', type: 'number', min: -10, max: 10, def: 0 },
+      ],
+    ],
+  },
+  {
+    title: 'Snow',
+    rows: [
+      [
+        { label: 'Low Height', key: 'snow.low', type: 'number', min: 0, max: 3, def: 0.8 },
+        { label: 'High Height', key: 'snow.high', type: 'number', min: 0, max: 3, def: 0.9 },
+        { label: 'Slope Falloff', key: 'snow.slope', type: 'number', min: -1, max: 1, def: 0.3 },
       ],
     ],
   },

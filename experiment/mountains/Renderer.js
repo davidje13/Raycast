@@ -35,6 +35,7 @@ uniform vec3 origin;
 uniform mat3 view;
 uniform float terrainHeight;
 uniform float waterHeight;
+uniform float waterFog;
 uniform float perlinZoom;
 uniform float perlinFlatCliffs;
 uniform float perlinFlatPeaks;
@@ -44,8 +45,12 @@ uniform float perlinLargeHeight;
 uniform float rippleZoom;
 uniform float rippleHeight;
 uniform vec2 rippleShift;
+uniform float snowLow;
+uniform float snowHigh;
+uniform float snowSlope;
 uniform vec3 sun;
 uniform bool grid;
+uniform bool isP3;
 
 const float PERLIN_SCALE = 1.92;
 const float PERLIN_DIVIDE = 2.0;
@@ -101,8 +106,6 @@ const float PERLIN_NORM = 1.0 - 1.0 / PERLIN_DIVIDE;
 const float nAir = 1.0;
 const float nWater = 1.333;
 const float airWater = pow(abs(nAir - nWater) / (nAir + nWater), 2.0);
-const vec3 waterCol = vec3(0.0, 0.1, 0.3);
-const float waterFog = 1e-7;
 const float inf = 1.0 / 0.0;
 
 ${[5, 9, 14].map((count) => `
@@ -138,11 +141,11 @@ vec3 terrainAndGrad${count}(vec2 pos) {
   return (
     vec3(sum.xy * perlinGamma, sum.z) * gammaAdjustedM1 +
     sumLarge * perlinLargeHeight
-  ) * (1.0 / (1.0 + perlinLargeHeight));
+  ) * (1.0 / (1.0 + perlinLargeHeight)) * terrainHeight;
 }
 `).join('')}
 
-vec3 waterAt(vec2 pos) {
+vec3 waterAt(vec2 pos, float depth) {
   vec3 sumLarge = vec3(0.0, 0.0, 0.5 * 3.0);
   vec2 p = pos * rippleZoom;
   mat2 rot = mat2(1.0, 0.0, 0.0, 1.0) * rippleZoom;
@@ -153,25 +156,23 @@ vec3 waterAt(vec2 pos) {
     rot *= ROT_1_3;
   }
   sumLarge *= (1.0 / 3.0);
-  float depth = waterHeight - terrainAndGrad5(pos).z * terrainHeight;
   return sumLarge * rippleHeight * smoothstep(0.002, 0.02, depth);
 }
 
 const float shift = 0.1;
 
-${[16, 64].map((steps) => `
-float raytrace${steps}(vec3 o, vec3 ray, float near, float far) {
+float raytrace(vec3 o, vec3 ray, float near, float far, float dm) {
   if (near < 0.0 || far <= near) {
     return -1.0;
   }
   float d0 = near + shift;
   float d1 = inf;
 
-  float dm = pow((far + shift) / d0, 1.0 / ${steps}.0);
+  int steps = int(ceil(log((far + shift) / d0) / log(dm)));
   float d = d0 * pow(dm, texture(noise, ray.xy * 1000.0).y);
-  for (int i = 0; i < ${steps} + 2; i++) {
+  for (int i = 0; i < steps + 2; i++) {
     vec3 p = o + (d - shift) * ray;
-    vec3 t = terrainAndGrad5(p.xy) * terrainHeight;
+    vec3 t = terrainAndGrad5(p.xy);
     if (t.z > p.z) {
       d1 = d;
     } else {
@@ -186,12 +187,11 @@ float raytrace${steps}(vec3 o, vec3 ray, float near, float far) {
 
   return (d1 <= far + shift + 0.001) ? (d0 + d1) * 0.5 - shift : -1.0;
 }
-`).join('')}
 
 float raytune(vec3 o, vec3 ray, float d) {
   for (int i = 0; i < 2; i++) {
     vec3 guessP = o + d * ray;
-    vec3 guess = terrainAndGrad9(guessP.xy) * terrainHeight;
+    vec3 guess = terrainAndGrad9(guessP.xy);
     float guessGrad = dot(guess.xy, ray.xy);
     d = clamp(
       d + (guessP.z - guess.z) / (guessGrad - ray.z),
@@ -202,53 +202,22 @@ float raytune(vec3 o, vec3 ray, float d) {
   return d;
 }
 
-vec3 terrainColAt(vec2 p) {
-  vec3 terrain = terrainAndGrad14(p) * terrainHeight;
-  float grad2 = dot(terrain.xy, terrain.xy);
+const vec3 sunDiskCol = vec3(8.0, 7.6, 7.2);
 
-  // light
-  float lum = sqrt(max(dot(sun, normalize(vec3(-terrain.xy, 1.0))) * 0.7 + 0.3, 0.0));
+vec3 skyScatterInternal(float d) {
+  return vec3(
+    pow(0.001, d - 0.03) * 2.4,
+    pow(0.400, d - 0.02) * 2.2,
+    pow(0.700, d) * 2.0
+  ) * (smoothstep(-0.9, 0.0, sun.z) * 0.95 + 0.05);
+}
 
-  // grass
-  //vec3 c = vec3(0.2, 0.3, 0.3) + terrain.xxy * vec3(0.2, 0.3, 0.2);
-  vec3 c = mix(vec3(0.0, 0.0, 0.2), vec3(0.2, 0.4, 0.25), lum);
-
-  // snow
-  c = mix(
-    c,
-    mix(vec3(0.3, 0.3, 0.5), vec3(1.0), pow(lum, 0.7)),
-    smoothstep(0.75, 0.9, terrain.z - grad2 * 0.3)
-  );
-
-  // rock
-  c = mix(
-    c,
-    vec3(0.25, 0.1, 0.2) + terrain.xxx * vec3(0.2, 0.3, 0.3),
-    smoothstep(0.1, 0.7, grad2) * 0.8
-  );
-
-  // beach
-  c = mix(
-    c,
-    mix(
-      mix(
-        vec3(0.7, 0.6, 0.3),
-        vec3(0.5, 0.4, 0.2),
-        smoothstep(0.02, -0.01, terrain.z - waterHeight - grad2 * 0.1)
-      ),
-      mix(vec3(0.8, 0.65, 0.35), vec3(0.9, 0.8, 0.5), lum),
-      smoothstep(0.001, 0.007, terrain.z - waterHeight)
-    ),
-    smoothstep(0.012, 0.007, terrain.z - waterHeight + smoothstep(0.0, 0.5, grad2) * 0.04) * 0.8
-  );
-
-  // grid
-  if (grid) {
-    vec2 edge = abs(mod(p.xy, 1.0) - 0.5);
-    c = mix(c, vec3(0.5, 0.9, 0.7), max(smoothstep(0.49, 0.5, edge.x), smoothstep(0.49, 0.5, edge.y)) * 0.2);
+vec3 skyScatter(vec3 ray) {
+  float d = length(cross(ray, sun));
+  if (dot(ray, sun) < 0.0) {
+    d = 2.0 - d;
   }
-
-  return c;
+  return skyScatterInternal(d - pow(0.96 - ray.z, 50.0));
 }
 
 vec3 sky(vec3 ray) {
@@ -256,79 +225,153 @@ vec3 sky(vec3 ray) {
   if (dot(ray, sun) < 0.0) {
     d = 2.0 - d;
   }
-  d -= pow(0.96 - ray.z, 50.0);
-  float disk = pow(smoothstep(0.07, 0.02, d), 10.0);
-  return vec3(
-    pow(0.001, d - 0.03) * 1.2,
-    pow(0.400, d - 0.02) * 1.1,
-    pow(0.700, d)
-  ) + disk * vec3(4.0, 3.8, 3.6);
+  return skyScatterInternal(d - pow(0.96 - ray.z, 50.0)) + sunDiskCol * pow(smoothstep(0.07, 0.02, d), 10.0);
 }
 
-void main(void) {
-  float inclination = length(pfov);
-  vec3 ray = view * -vec3(sin(inclination) * pfov / inclination, cos(inclination));
+vec3 terrainColAt(vec2 p, vec3 ray) {
+  vec3 terrain = terrainAndGrad14(p);
+  vec3 norm = normalize(vec3(-terrain.xy, 1.0));
+  float grad2 = dot(terrain.xy, terrain.xy);
 
-  if (origin.z < terrainAndGrad9(origin.xy).z * terrainHeight) {
-    col = vec4(0.15, 0.1, 0.05, 1.0);
-    return;
+  // lighting
+  vec3 reflectRay = reflect(ray, norm);
+  float glossDot = max(dot(sun, reflectRay), 0.0) * smoothstep(0.0, 0.1, reflectRay.z * max(0.0, sun.z + 0.1));
+  vec3 diffuseCol = skyScatter(norm) + sunDiskCol * max(dot(sun, norm), 0.0);
+  float innerScatter = dot(sun, norm) * 0.5 + 0.5;
+  vec3 ambientCol = skyScatter(vec3(0.0, 0.0, 1.0)) + sunDiskCol * smoothstep(-0.4, 0.4, sun.z);
+
+  vec3 rock = (
+    + ambientCol * vec3(0.003, 0.003, 0.002)
+    + diffuseCol * vec3(0.050, 0.040, 0.050)
+    + sunDiskCol * vec3(0.030, 0.040, 0.040) * pow(glossDot, 10.0)
+  ) * 0.4;
+
+  vec3 dirt = (
+    + ambientCol * vec3(0.020, 0.008, 0.010)
+    + diffuseCol * vec3(0.200, 0.080, 0.020)
+  ) * 0.3;
+
+  vec3 grass = (
+    + ambientCol * vec3(0.001, 0.002, 0.000)
+    + diffuseCol * vec3(0.010, 0.030, 0.015)
+  );
+
+  vec3 sand = (
+    + ambientCol * vec3(0.040, 0.030, 0.010)
+    + diffuseCol * vec3(0.030, 0.024, 0.012)
+  );
+
+  vec3 wetSand = sand * 0.6 + sunDiskCol * vec3(0.020, 0.015, 0.011) * pow(glossDot, 2.0);
+
+  vec3 sandmix = mix(
+    wetSand,
+    sand,
+    smoothstep(-0.0005, 0.01, terrain.z - waterHeight - grad2 * 0.001)
+  );
+
+  vec3 snow = (
+    + ambientCol * (vec3(0.060, 0.070, 0.075) + innerScatter * 0.2)
+    + diffuseCol * 0.150
+    + sunDiskCol * 0.100 * pow(glossDot, 10.0)
+  );
+
+  vec3 c = mix(
+    mix(
+      sandmix,
+      mix(
+        grass,
+        mix(rock, dirt, smoothstep(0.5, 0.1, grad2)),
+        clamp((grad2 - 0.1) * (1.0 / 0.2), 0.0, 1.0)
+      ),
+      smoothstep(0.008, 0.02, terrain.z - waterHeight + smoothstep(0.0, 0.5, grad2) * 0.03)
+    ),
+    snow,
+    smoothstep(snowLow, snowHigh, terrain.z - grad2 * snowSlope)
+  );
+
+  // approx. water attenuation of incoming light
+  if (terrain.z < waterHeight) {
+    c *= pow(waterFog, waterHeight - terrain.z);
+  }
+
+  // grid
+  if (grid) {
+    vec2 edge = abs(mod(p.xy, 1.0) - 0.5);
+    float edge2 = abs(mod(terrain.z * 10.0, 1.0) - 0.5);
+    c = mix(
+      c,
+      vec3(2.0),
+      max(max(smoothstep(0.49, 0.495, edge.x), smoothstep(0.49, 0.495, edge.y)), smoothstep(0.47, 0.49, edge2)) * 0.6
+    );
+  }
+
+  return c;
+}
+
+vec3 render(vec3 ray) {
+  if (origin.z < terrainAndGrad9(origin.xy).z) {
+    return vec3(0.15, 0.1, 0.05);
   }
 
   float dTop = (origin.z - terrainHeight) / -ray.z;
   float dWater = (origin.z - waterHeight) / -ray.z;
   float dBase = origin.z / -ray.z;
 
-  float d = raytrace64(
+  float d = raytrace(
     origin,
     ray,
     origin.z > terrainHeight ? dTop : 0.0,
     (origin.z > waterHeight)
       ? (ray.z > 0.0 ? dTop : dWater)
-      : (ray.z > 0.0 ? dWater : dBase)
+      : (ray.z > 0.0 ? dWater : dBase),
+    1.04
   );
+
+  vec3 waterCol = vec3(0.00, 0.01, 0.03) * sunDiskCol * smoothstep(-0.2, 0.4, sun.z);
+
   if (d >= 0.0) {
     // ground
     d = raytune(origin, ray, d);
-    vec3 c = terrainColAt((origin + d * ray).xy);
+    vec3 c = terrainColAt((origin + d * ray).xy, ray);
 
     if (origin.z < waterHeight) {
       c = mix(waterCol, c, pow(waterFog, d));
     }
-    col = vec4(c, 1.0);
-    return;
+    return c;
   }
 
   if (origin.z >= waterHeight && ray.z > 0.0) {
     // sky
-    col = vec4(sky(ray), 1.0);
-    return;
+    return sky(ray);
   }
 
   vec3 waterOrigin = origin + ray * dWater;
-  vec3 waterNorm = normalize(vec3(waterAt(waterOrigin.xy).xy, 1.0));
+  float depth = waterHeight - terrainAndGrad14(waterOrigin.xy).z;
+  vec3 waterNorm = normalize(vec3(-waterAt(waterOrigin.xy, depth).xy, 1.0));
+
+  // water interaction
+  vec3 rayReflect = reflect(ray, waterNorm);
 
   if (origin.z < waterHeight) {
     // internal reflection in water
-    vec3 rayReflect = reflect(ray, waterNorm);
     rayReflect.z = -abs(rayReflect.z); // assume reflection up will reflect back down
-    float dReflect = raytrace16(waterOrigin, rayReflect, 0.0, waterHeight / -rayReflect.z);
-    vec3 colReflect = terrainColAt((waterOrigin + dReflect * rayReflect).xy);
+    float dReflect = raytrace(waterOrigin, rayReflect, 0.0, waterHeight / -rayReflect.z, 1.3);
+    vec3 colReflect = terrainColAt((waterOrigin + dReflect * rayReflect).xy, rayReflect);
 
     // refraction out of water
     vec3 rayRefract = refract(ray, -waterNorm, nWater / nAir);
     if (rayRefract == vec3(0.0)) {
-      col = vec4(mix(waterCol, colReflect, pow(waterFog, dWater + dReflect)), 1.0);
-      return;
+      return mix(waterCol, colReflect, pow(waterFog, dWater + dReflect));
     }
 
     rayRefract.z = abs(rayRefract.z); // don't allow waves to cause refraction to go downwards
-    float dRefract = raytrace16(waterOrigin, rayRefract, 0.0, (terrainHeight - waterHeight) / rayRefract.z);
-    vec3 colRefract = dRefract >= 0.0 ? terrainColAt((waterOrigin + dRefract * rayRefract).xy) : sky(rayRefract);
+    float dRefract = raytrace(waterOrigin, rayRefract, 0.0, (terrainHeight - waterHeight) / rayRefract.z, 1.3);
+    vec3 colRefract = dRefract >= 0.0 ? terrainColAt((waterOrigin + dRefract * rayRefract).xy, rayRefract) : sky(rayRefract);
 
     // Schlick's approximation
     float reflectance = airWater + (1.0 - airWater) * pow(1.0 - dot(ray, waterNorm), 5.0);
 
-    col = vec4(mix(
+    return mix(
       waterCol,
       mix(
         colRefract,
@@ -336,29 +379,44 @@ void main(void) {
         reflectance
       ),
       pow(waterFog, dWater)
-    ), 1.0);
-    return;
+    );
   }
 
   // refraction into water
   vec3 rayRefract = refract(ray, waterNorm, nAir / nWater);
   rayRefract.z = -abs(rayRefract.z); // don't allow waves to cause refraction to go upwards
-  float dRefract = raytrace16(waterOrigin, rayRefract, 0.0, waterHeight / -rayRefract.z);
-  vec3 colRefract = terrainColAt((waterOrigin + dRefract * rayRefract).xy);
+  float dRefract = raytrace(waterOrigin, rayRefract, 0.0, waterHeight / -rayRefract.z, 1.3);
+  vec3 colRefract = terrainColAt((waterOrigin + dRefract * rayRefract).xy, rayRefract);
 
-  vec3 rayReflect = reflect(ray, waterNorm);
   rayReflect.z = abs(rayReflect.z); // assume rays which reflect downwards will eventually reflect back up
-  float dReflect = raytrace16(waterOrigin, rayReflect, 0.0, (terrainHeight - waterHeight) / rayReflect.z);
-  vec3 colReflect = dReflect >= 0.0 ? terrainColAt((waterOrigin + dReflect * rayReflect).xy) : sky(rayReflect);
+  float dReflect = raytrace(waterOrigin, rayReflect, 0.0, (terrainHeight - waterHeight) / rayReflect.z, 1.3);
+  vec3 colReflect = dReflect >= 0.0 ? terrainColAt((waterOrigin + dReflect * rayReflect).xy, rayReflect) : sky(rayReflect);
 
   // Schlick's approximation
   float reflectance = airWater + (1.0 - airWater) * pow(1.0 + dot(ray, waterNorm), 5.0);
 
-  col = vec4(mix(
+  return mix(
     mix(waterCol, colRefract, pow(waterFog, dRefract)),
     colReflect,
-    reflectance
-  ), 1.0);
+    clamp(depth * 40.0, 0.0, reflectance)
+  );
+}
+
+void main(void) {
+  float inclination = length(pfov);
+  vec3 ray = view * -vec3(sin(inclination) * pfov / inclination, cos(inclination));
+
+  vec3 c = render(ray);
+  c *= 0.5;
+  if (isP3) {
+    c = pow(c, vec3(1.0 / 2.2));
+  } else {
+    c = pow(c, vec3(1.0 / 2.2));
+    // match P3 and SRGB (thanks, http://endavid.com/index.php?entry=79)
+    // TODO: instead, convert both from a physically meaningful space
+    c *= mat3(1.2249, -0.2247, 0.0, -0.0420, 1.0419, 0.0, -0.0197, -0.0786, 1.0979);
+  }
+  col = vec4(c + texture(noise, ray.xy * 10000.0).yyy * (1.0 / 256.0), 1.0);
 }`;
 
 const QUAD_ATTRIB_LOCATION = 0;
@@ -396,8 +454,8 @@ class Renderer {
 
     this.noiseTex = createEmptyTexture(this.ctx, {
       wrap: GL.REPEAT,
-      mag: GL.LINEAR,
-      min: GL.LINEAR,
+      mag: GL.NEAREST,
+      min: GL.NEAREST,
       format: GL.RGBA8,
       width: NOISE_SIZE,
       height: NOISE_SIZE,
@@ -428,9 +486,11 @@ class Renderer {
       .withUniform2f('fov')
       .withUniform3f('sun')
       .withUniform1i('grid')
+      .withUniform1i('isP3')
       .withUniform1i('noise')
       .withUniform1f('terrainHeight')
       .withUniform1f('waterHeight')
+      .withUniform1f('waterFog')
       .withUniform1f('perlinZoom')
       .withUniform1f('perlinFlatCliffs')
       .withUniform1f('perlinFlatPeaks')
@@ -440,6 +500,9 @@ class Renderer {
       .withUniform1f('rippleZoom')
       .withUniform1f('rippleHeight')
       .withUniform2f('rippleShift')
+      .withUniform1f('snowLow')
+      .withUniform1f('snowHigh')
+      .withUniform1f('snowSlope')
       .link();
 
     this.quadVertexArray = this.ctx.createVertexArray();
@@ -476,6 +539,12 @@ class Renderer {
     }
     if (this.ctx.isContextLost()) {
       throw new Error('cannot render: context lost');
+    }
+
+    this.colorspace = 'srgb';
+    if ('drawingBufferColorSpace' in this.ctx) {
+      this.ctx.drawingBufferColorSpace = config.colorspace;
+      this.colorspace = this.ctx.drawingBufferColorSpace; // check if p3 is supported
     }
 
     const eyeSep = config.view.eyeSeparation;
@@ -531,9 +600,11 @@ class Renderer {
       fov: [fovx, fovy],
       sun: xyzTo3f(norm3(config.sun)),
       grid: Boolean(config.grid),
+      isP3: this.colorspace === 'display-p3',
       noise: { index: 0, texture: this.noiseTex },
       terrainHeight: config.terrainHeight,
       waterHeight: config.waterHeight,
+      waterFog: Math.pow(10, -config.waterFog),
       perlinZoom: config.zoom,
       perlinFlatCliffs: config.cliffFlatness,
       perlinFlatPeaks: config.peakFlatness,
@@ -543,6 +614,9 @@ class Renderer {
       rippleZoom: config.ripple.zoom,
       rippleHeight: config.ripple.height,
       rippleShift: [config.ripple.shift.x, config.ripple.shift.y],
+      snowLow: config.snow.low,
+      snowHigh: config.snow.high,
+      snowSlope: config.snow.slope,
     });
     this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
   }

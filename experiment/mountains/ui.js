@@ -8,6 +8,27 @@ const INPUT_TYPES = {
       set: () => {},
     };
   },
+  'option': ({ label, options }, _, onChange) => {
+    const select = document.createElement('select');
+    const labels = options.map((o) => (typeof o === 'string' ? o : o.label));
+    const values = options.map((o) => (typeof o === 'string' ? o : o.value));
+    for (const label of labels) {
+      const opt = document.createElement('option');
+      opt.appendChild(document.createTextNode(label));
+      select.appendChild(opt);
+    }
+    select.addEventListener('change', onChange);
+
+    const l = document.createElement('label');
+    l.appendChild(document.createTextNode(label + ' '));
+    l.appendChild(select);
+
+    return {
+      dom: l,
+      get: () => values[select.selectedIndex],
+      set: (v) => { select.selectedIndex = values.indexOf(v); },
+    };
+  },
   'number': ({ label, min = null, max = null, scale = 1 }, onInput, onChange) => {
     const input = document.createElement('input');
     if (min !== undefined && max !== undefined) {
