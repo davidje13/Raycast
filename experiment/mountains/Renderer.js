@@ -25,17 +25,16 @@ void main(void) {
   col = vec4(random(uvec2(gl_FragCoord.x, gl_FragCoord.y)), 0.0, 1.0);
 }`;
 
-const RENDER_FRAG_TERRAIN = `#version 300 es
-precision mediump float;
+const HELPER_FNS = `
+float linearstep(float edge0, float edge1, float x) {
+  return clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+}
+`;
 
+const TERRAIN_FNS = `
 #define SMOOTHNESS 2
 
 uniform sampler2D noise;
-uniform vec3 origin;
-uniform mat3 view;
-uniform float terrainHeight;
-uniform float waterHeight;
-uniform float waterFog;
 uniform float perlinZoom;
 uniform float perlinFlatCliffs;
 uniform float perlinFlatPeaks;
@@ -45,22 +44,30 @@ uniform float perlinLargeHeight;
 uniform float rippleZoom;
 uniform float rippleHeight;
 uniform vec2 rippleShift;
-uniform float snowLow;
-uniform float snowHigh;
-uniform float snowSlope;
-uniform vec3 sun;
-uniform bool grid;
-uniform bool isP3;
 
 const float PERLIN_SCALE = 1.92;
 const float PERLIN_DIVIDE = 2.0;
 const float PERLIN_SHIFT_ANGLE = 0.7;
 
-in vec2 pfov;
-out vec4 col;
+const float inf = 1.0 / 0.0;
 
-float linearstep(float edge0, float edge1, float x) {
-  return clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+const float PERLIN_SIN = sin(PERLIN_SHIFT_ANGLE) * PERLIN_SCALE;
+const float PERLIN_COS = cos(PERLIN_SHIFT_ANGLE) * PERLIN_SCALE;
+const mat2 PERLIN_MATRIX = mat2( // rotate, mirror
+  -PERLIN_COS, PERLIN_SIN,
+  PERLIN_SIN, PERLIN_COS
+);
+const vec2 PERLIN_OFFSET = vec2(400.1234, 2.4321);
+const float SIN_2_3 = sin(${Math.PI * 2.0 / 3.0});
+const float COS_2_3 = cos(${Math.PI * 2.0 / 3.0});
+const mat2 ROT_1_3 = mat2( // rotate, mirror
+  COS_2_3, -SIN_2_3,
+  SIN_2_3, COS_2_3
+);
+const float PERLIN_NORM = 1.0 - 1.0 / PERLIN_DIVIDE;
+
+vec2 sharpNoise(vec2 pos) {
+  return texture(noise, pos * 10000.0).xy;
 }
 
 vec3 noiseAndGrad(vec2 pos) {
@@ -92,27 +99,7 @@ vec3 noiseAndGrad(vec2 pos) {
   );
 }
 
-const float PERLIN_SIN = sin(PERLIN_SHIFT_ANGLE) * PERLIN_SCALE;
-const float PERLIN_COS = cos(PERLIN_SHIFT_ANGLE) * PERLIN_SCALE;
-const mat2 PERLIN_MATRIX = mat2( // rotate, mirror
-  -PERLIN_COS, PERLIN_SIN,
-  PERLIN_SIN, PERLIN_COS
-);
-const vec2 PERLIN_OFFSET = vec2(400.1234, 2.4321);
-const float SIN_2_3 = sin(${Math.PI * 2.0 / 3.0});
-const float COS_2_3 = cos(${Math.PI * 2.0 / 3.0});
-const mat2 ROT_1_3 = mat2( // rotate, mirror
-  COS_2_3, -SIN_2_3,
-  SIN_2_3, COS_2_3
-);
-const float PERLIN_NORM = 1.0 - 1.0 / PERLIN_DIVIDE;
-
-const float nAir = 1.0;
-const float nWater = 1.333;
-const float airWater = pow(abs(nAir - nWater) / (nAir + nWater), 2.0);
-const float inf = 1.0 / 0.0;
-
-${[5, 9, 14].map((count) => `
+${[9, 15].map((count) => `
 vec3 terrainAndGrad${count}(vec2 pos) {
   vec3 sumLarge = vec3(0.0, 0.0, 0.5 * 3.0);
   vec2 p = pos * perlinLargeZoom;
@@ -149,6 +136,10 @@ vec3 terrainAndGrad${count}(vec2 pos) {
 }
 `).join('')}
 
+float elevationAt(vec3 pos) {
+  return pos.z - terrainAndGrad9(pos.xy).z;
+}
+
 vec3 waterAt(vec2 pos, float depth) {
   vec3 sumLarge = vec3(0.0, 0.0, 0.5 * 3.0);
   vec2 p = pos * rippleZoom;
@@ -162,8 +153,6 @@ vec3 waterAt(vec2 pos, float depth) {
   sumLarge *= (1.0 / 3.0);
   return sumLarge * rippleHeight * linearstep(0.002, 0.02, depth);
 }
-
-const float shift = 0.1;
 
 float raytune0(vec3 o, vec3 ray, float d, float range) {
   for (int i = 0; i < 2; i++) {
@@ -193,19 +182,20 @@ float raytrace(vec3 o, vec3 ray, float near, float far, float dm) {
   float gradStep = 1.0 / (length(ray.xy) * maxGrad - ray.z);
 
   vec3 p = o + near * ray;
-  float g = p.z - terrainAndGrad9(p.xy).z;
+  float g = elevationAt(p);
   if (g < 0.0) {
     return near;
   }
 
+  const float shift = 0.1;
   near += shift;
   far += shift;
-  float d = near + g * gradStep * texture(noise, ray.xy * 1000.0).y;
+  float d = near + g * gradStep * sharpNoise(ray.xy).y;
 
   for (int i = 0; i < 500; ++i) {
     d = min(d, far);
     p = o + (d - shift) * ray;
-    g = p.z - terrainAndGrad9(p.xy).z;
+    g = elevationAt(p);
     if (g < 0.0) {
       return raytune2(o, ray, (near + d) * 0.5 - shift, (d - near) * 0.5);
     }
@@ -216,6 +206,58 @@ float raytrace(vec3 o, vec3 ray, float near, float far, float dm) {
     d = max(d * dm, d + g * gradStep);
   }
 }
+
+float shadowtrace(vec3 o, vec3 ray, float blur) {
+  if (ray.z < 0.001) {
+    return 0.0;
+  }
+
+  float maxGrad = terrainHeight * 2.0;
+  float gradStep = 1.0 / (length(ray.xy) * maxGrad - (ray.z - blur));
+
+  float l = (o.z - terrainHeight) / -ray.z;
+  float step = max(0.2, l * 0.01);
+  float vis = 1.0;
+  float d = step * (sharpNoise(o.xy).y * 0.5 + 0.01);
+  while (d < l) {
+    vec3 p = o + d * ray;
+    float g = elevationAt(p);
+    float range = blur * d;
+    float pvis = linearstep(-range, range, g);
+    vis *= pow(pvis, step * 5.0);
+    if (vis < 0.05) {
+      return 0.0;
+    }
+    d += max(step, g * gradStep);
+  }
+  return vis;
+}
+`;
+
+const RENDER_FRAG_TERRAIN = `#version 300 es
+precision mediump float;
+
+uniform vec3 origin;
+uniform mat3 view;
+uniform float terrainHeight;
+uniform float waterHeight;
+uniform float waterFog;
+uniform float snowLow;
+uniform float snowHigh;
+uniform float snowSlope;
+uniform vec3 sun;
+uniform bool grid;
+uniform bool isP3;
+
+in vec2 pfov;
+out vec4 col;
+
+${HELPER_FNS}
+${TERRAIN_FNS}
+
+const float nAir = 1.0;
+const float nWater = 1.333;
+const float airWater = pow(abs(nAir - nWater) / (nAir + nWater), 2.0);
 
 const vec3 sunDiskCol = vec3(8.0, 7.6, 7.2);
 
@@ -244,7 +286,7 @@ vec3 sky(vec3 ray) {
 }
 
 vec3 terrainColAt(vec2 p, vec3 ray) {
-  vec3 terrain = terrainAndGrad14(p);
+  vec3 terrain = terrainAndGrad15(p);
   vec3 norm = normalize(vec3(-terrain.xy, 1.0));
   float grad2 = dot(terrain.xy, terrain.xy);
   float heightAboveWater = terrain.z - waterHeight;
@@ -255,14 +297,19 @@ vec3 terrainColAt(vec2 p, vec3 ray) {
   float glossDot2 = glossDot1 * glossDot1;
   float glossDot4 = glossDot2 * glossDot2;
   float glossDot8 = glossDot4 * glossDot4;
+  vec3 reflectCol = sunDiskCol;
   vec3 diffuseCol = skyScatter(norm) + sunDiskCol * max(dot(sun, norm), 0.0);
   float innerScatter = dot(sun, norm) * 0.5 + 0.5;
   vec3 ambientCol = skyScatter(vec3(0.0, 0.0, 1.0)) + sunDiskCol * smoothstep(-0.4, 0.4, sun.z);
+  float shadow = dot(sun, norm) > 0.0 ? shadowtrace(vec3(p, terrain.z), sun, 0.2) : 0.0;
+  diffuseCol *= shadow * 0.8 + 0.2;
+  ambientCol *= shadow * 0.7 + 0.3;
+  reflectCol *= shadow;
 
   vec3 rock = (
     + ambientCol * vec3(0.003, 0.003, 0.002) * 0.4
     + diffuseCol * vec3(0.050, 0.040, 0.050) * 0.4
-    + sunDiskCol * vec3(0.030, 0.040, 0.040) * 0.4 * glossDot8
+    + reflectCol * vec3(0.030, 0.040, 0.040) * 0.4 * glossDot8
   );
 
   vec3 dirt = (
@@ -282,7 +329,7 @@ vec3 terrainColAt(vec2 p, vec3 ray) {
 
   vec3 wetSand = (
     + sand * 0.6
-    + sunDiskCol * vec3(0.020, 0.015, 0.011) * glossDot2
+    + reflectCol * vec3(0.020, 0.015, 0.011) * glossDot2
   );
 
   vec3 sandmix = mix(
@@ -294,7 +341,7 @@ vec3 terrainColAt(vec2 p, vec3 ray) {
   vec3 snow = (
     + ambientCol * (vec3(0.060, 0.070, 0.075) + innerScatter * 0.2)
     + diffuseCol * 0.150
-    + sunDiskCol * 0.100 * glossDot8
+    + reflectCol * 0.100 * glossDot8
   );
 
   vec3 c = mix(
@@ -372,7 +419,9 @@ vec3 render(vec3 ray) {
   }
 
   vec3 waterOrigin = origin + ray * dWater;
-  float depth = waterHeight - terrainAndGrad14(waterOrigin.xy).z;
+  float waterShadow = shadowtrace(waterOrigin, sun, 0.2) * 0.8 + 0.2;
+  waterCol *= waterShadow;
+  float depth = waterHeight - terrainAndGrad15(waterOrigin.xy).z;
   vec3 waterNorm = normalize(vec3(-waterAt(waterOrigin.xy, depth).xy, 1.0));
 
   // water interaction
@@ -449,7 +498,7 @@ void main(void) {
 
   vec3 c = render(ray);
   c = convertToDisplayColourSpace(c);
-  c += texture(noise, pfov.xy * 10000.0).yyy * (1.0 / 256.0);
+  c += sharpNoise(pfov.xy).yyy * (1.0 / 256.0);
   col = vec4(c, 1.0);
 }`;
 
