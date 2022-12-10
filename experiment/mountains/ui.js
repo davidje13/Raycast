@@ -87,7 +87,7 @@ class UI {
     for (const { title, rows } of config) {
       const fs = document.createElement('fieldset');
       const legend = document.createElement('legend');
-      legend.innerText = title;
+      legend.appendChild(document.createTextNode(title));
       fs.appendChild(legend);
       for (const row of rows) {
         for (const { type, key, def, ...typeConfig } of row) {
@@ -98,6 +98,7 @@ class UI {
           );
           if (dom) {
             fs.appendChild(dom);
+            fs.appendChild(document.createTextNode(' '));
           }
           this.inputs.push({
             key: key.split('.'),

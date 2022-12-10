@@ -59,6 +59,10 @@ const float PERLIN_SHIFT_ANGLE = 0.7;
 in vec2 pfov;
 out vec4 col;
 
+float linearstep(float edge0, float edge1, float x) {
+  return clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+}
+
 vec3 noiseAndGrad(vec2 pos) {
   vec2 f = fract(pos);
   ivec2 c = ivec2(floor(pos));
@@ -156,50 +160,61 @@ vec3 waterAt(vec2 pos, float depth) {
     rot *= ROT_1_3;
   }
   sumLarge *= (1.0 / 3.0);
-  return sumLarge * rippleHeight * smoothstep(0.002, 0.02, depth);
+  return sumLarge * rippleHeight * linearstep(0.002, 0.02, depth);
 }
 
 const float shift = 0.1;
 
-float raytrace(vec3 o, vec3 ray, float near, float far, float dm) {
-  if (near < 0.0 || far <= near) {
-    return -1.0;
-  }
-  float d0 = near + shift;
-  float d1 = inf;
-
-  int steps = int(ceil(log((far + shift) / d0) / log(dm)));
-  float d = d0 * pow(dm, texture(noise, ray.xy * 1000.0).y);
-  for (int i = 0; i < steps + 2; i++) {
-    vec3 p = o + (d - shift) * ray;
-    vec3 t = terrainAndGrad5(p.xy);
-    if (t.z > p.z) {
-      d1 = d;
-    } else {
-      d0 = d;
-    }
-    d = d0 * dm;
-    if (d >= d1) {
-      dm = sqrt(dm);
-      d = d0 * dm;
-    }
-  }
-
-  return (d1 <= far + shift + 0.001) ? (d0 + d1) * 0.5 - shift : -1.0;
-}
-
-float raytune(vec3 o, vec3 ray, float d) {
+float raytune0(vec3 o, vec3 ray, float d, float range) {
   for (int i = 0; i < 2; i++) {
-    vec3 guessP = o + d * ray;
-    vec3 guess = terrainAndGrad9(guessP.xy);
-    float guessGrad = dot(guess.xy, ray.xy);
-    d = clamp(
-      d + (guessP.z - guess.z) / (guessGrad - ray.z),
-      d - terrainHeight * 0.005,
-      d + terrainHeight * 0.005
-    );
+    vec3 p = o + d * ray;
+    d += (step(terrainAndGrad9(p.xy).z, p.z) * 2.0 - 1.0) * range;
+    range *= 0.5;
   }
   return d;
+}
+
+float raytune2(vec3 o, vec3 ray, float d, float range) {
+  for (int i = 0; i < 2; i++) {
+    vec3 p = o + d * ray;
+    vec3 g = terrainAndGrad9(p.xy);
+    d += clamp((p.z - g.z) / (dot(g.xy, ray.xy) - ray.z), -range, range);
+    range *= 0.5;
+  }
+  return d;
+}
+
+float raytrace(vec3 o, vec3 ray, float near, float far, float dm) {
+  if (near < 0.0 || far <= near) {
+    return inf;
+  }
+
+  float maxGrad = terrainHeight * 2.0;
+  float gradStep = 1.0 / (length(ray.xy) * maxGrad - ray.z);
+
+  vec3 p = o + near * ray;
+  float g = p.z - terrainAndGrad9(p.xy).z;
+  if (g < 0.0) {
+    return near;
+  }
+
+  near += shift;
+  far += shift;
+  float d = near + g * gradStep * texture(noise, ray.xy * 1000.0).y;
+
+  for (int i = 0; i < 500; ++i) {
+    d = min(d, far);
+    p = o + (d - shift) * ray;
+    g = p.z - terrainAndGrad9(p.xy).z;
+    if (g < 0.0) {
+      return raytune2(o, ray, (near + d) * 0.5 - shift, (d - near) * 0.5);
+    }
+    if (d >= far) {
+      return inf;
+    }
+    near = d;
+    d = max(d * dm, d + g * gradStep);
+  }
 }
 
 const vec3 sunDiskCol = vec3(8.0, 7.6, 7.2);
@@ -225,31 +240,35 @@ vec3 sky(vec3 ray) {
   if (dot(ray, sun) < 0.0) {
     d = 2.0 - d;
   }
-  return skyScatterInternal(d - pow(0.96 - ray.z, 50.0)) + sunDiskCol * pow(smoothstep(0.07, 0.02, d), 10.0);
+  return skyScatterInternal(d - pow(0.96 - ray.z, 50.0)) + sunDiskCol * pow(linearstep(0.06, 0.03, d), 10.0);
 }
 
 vec3 terrainColAt(vec2 p, vec3 ray) {
   vec3 terrain = terrainAndGrad14(p);
   vec3 norm = normalize(vec3(-terrain.xy, 1.0));
   float grad2 = dot(terrain.xy, terrain.xy);
+  float heightAboveWater = terrain.z - waterHeight;
 
   // lighting
   vec3 reflectRay = reflect(ray, norm);
-  float glossDot = max(dot(sun, reflectRay), 0.0) * smoothstep(0.0, 0.1, reflectRay.z * max(0.0, sun.z + 0.1));
+  float glossDot1 = max(dot(sun, reflectRay), 0.0) * linearstep(0.0, 0.1, reflectRay.z * max(0.0, sun.z + 0.1));
+  float glossDot2 = glossDot1 * glossDot1;
+  float glossDot4 = glossDot2 * glossDot2;
+  float glossDot8 = glossDot4 * glossDot4;
   vec3 diffuseCol = skyScatter(norm) + sunDiskCol * max(dot(sun, norm), 0.0);
   float innerScatter = dot(sun, norm) * 0.5 + 0.5;
   vec3 ambientCol = skyScatter(vec3(0.0, 0.0, 1.0)) + sunDiskCol * smoothstep(-0.4, 0.4, sun.z);
 
   vec3 rock = (
-    + ambientCol * vec3(0.003, 0.003, 0.002)
-    + diffuseCol * vec3(0.050, 0.040, 0.050)
-    + sunDiskCol * vec3(0.030, 0.040, 0.040) * pow(glossDot, 10.0)
-  ) * 0.4;
+    + ambientCol * vec3(0.003, 0.003, 0.002) * 0.4
+    + diffuseCol * vec3(0.050, 0.040, 0.050) * 0.4
+    + sunDiskCol * vec3(0.030, 0.040, 0.040) * 0.4 * glossDot8
+  );
 
   vec3 dirt = (
-    + ambientCol * vec3(0.020, 0.008, 0.010)
-    + diffuseCol * vec3(0.200, 0.080, 0.020)
-  ) * 0.3;
+    + ambientCol * vec3(0.020, 0.008, 0.010) * 0.3
+    + diffuseCol * vec3(0.200, 0.080, 0.020) * 0.3
+  );
 
   vec3 grass = (
     + ambientCol * vec3(0.001, 0.002, 0.000)
@@ -261,18 +280,21 @@ vec3 terrainColAt(vec2 p, vec3 ray) {
     + diffuseCol * vec3(0.030, 0.024, 0.012)
   );
 
-  vec3 wetSand = sand * 0.6 + sunDiskCol * vec3(0.020, 0.015, 0.011) * pow(glossDot, 2.0);
+  vec3 wetSand = (
+    + sand * 0.6
+    + sunDiskCol * vec3(0.020, 0.015, 0.011) * glossDot2
+  );
 
   vec3 sandmix = mix(
     wetSand,
     sand,
-    smoothstep(-0.0005, 0.01, terrain.z - waterHeight - grad2 * 0.001)
+    linearstep(-0.0005, 0.01, heightAboveWater - grad2 * 0.001)
   );
 
   vec3 snow = (
     + ambientCol * (vec3(0.060, 0.070, 0.075) + innerScatter * 0.2)
     + diffuseCol * 0.150
-    + sunDiskCol * 0.100 * pow(glossDot, 10.0)
+    + sunDiskCol * 0.100 * glossDot8
   );
 
   vec3 c = mix(
@@ -280,18 +302,18 @@ vec3 terrainColAt(vec2 p, vec3 ray) {
       sandmix,
       mix(
         grass,
-        mix(rock, dirt, smoothstep(0.5, 0.1, grad2)),
-        clamp((grad2 - 0.1) * (1.0 / 0.2), 0.0, 1.0)
+        mix(dirt, rock, linearstep(0.1, 0.5, grad2)),
+        linearstep(0.1, 0.3, grad2)
       ),
-      smoothstep(0.008, 0.02, terrain.z - waterHeight + smoothstep(0.0, 0.5, grad2) * 0.03)
+      linearstep(0.009, 0.019, heightAboveWater + linearstep(0.05, 0.45, grad2) * 0.03)
     ),
     snow,
-    smoothstep(snowLow, snowHigh, terrain.z - grad2 * snowSlope)
+    linearstep(snowLow, snowHigh, terrain.z - grad2 * snowSlope)
   );
 
   // approx. water attenuation of incoming light
-  if (terrain.z < waterHeight) {
-    c *= pow(waterFog, waterHeight - terrain.z);
+  if (heightAboveWater < 0.0) {
+    c *= pow(waterFog, -heightAboveWater);
   }
 
   // grid
@@ -301,7 +323,11 @@ vec3 terrainColAt(vec2 p, vec3 ray) {
     c = mix(
       c,
       vec3(2.0),
-      max(max(smoothstep(0.49, 0.495, edge.x), smoothstep(0.49, 0.495, edge.y)), smoothstep(0.47, 0.49, edge2)) * 0.6
+      max(max(
+        linearstep(0.49, 0.495, edge.x),
+        linearstep(0.49, 0.495, edge.y)),
+        linearstep(0.47, 0.49, edge2)
+      ) * 0.6
     );
   }
 
@@ -309,29 +335,29 @@ vec3 terrainColAt(vec2 p, vec3 ray) {
 }
 
 vec3 render(vec3 ray) {
-  if (origin.z < terrainAndGrad9(origin.xy).z) {
-    return vec3(0.15, 0.1, 0.05);
-  }
-
   float dTop = (origin.z - terrainHeight) / -ray.z;
   float dWater = (origin.z - waterHeight) / -ray.z;
   float dBase = origin.z / -ray.z;
 
+  float far = (origin.z > waterHeight)
+    ? (ray.z > 0.0 ? dTop : dWater)
+    : (ray.z > 0.0 ? dWater : dBase);
   float d = raytrace(
     origin,
     ray,
     origin.z > terrainHeight ? dTop : 0.0,
-    (origin.z > waterHeight)
-      ? (ray.z > 0.0 ? dTop : dWater)
-      : (ray.z > 0.0 ? dWater : dBase),
-    1.04
+    far,
+    1.02
   );
+
+  if (d <= 0.0) {
+    return vec3(0.15, 0.1, 0.05);
+  }
 
   vec3 waterCol = vec3(0.00, 0.01, 0.03) * sunDiskCol * smoothstep(-0.2, 0.4, sun.z);
 
-  if (d >= 0.0) {
+  if (d <= far) {
     // ground
-    d = raytune(origin, ray, d);
     vec3 c = terrainColAt((origin + d * ray).xy, ray);
 
     if (origin.z < waterHeight) {
@@ -365,8 +391,9 @@ vec3 render(vec3 ray) {
     }
 
     rayRefract.z = abs(rayRefract.z); // don't allow waves to cause refraction to go downwards
-    float dRefract = raytrace(waterOrigin, rayRefract, 0.0, (terrainHeight - waterHeight) / rayRefract.z, 1.3);
-    vec3 colRefract = dRefract >= 0.0 ? terrainColAt((waterOrigin + dRefract * rayRefract).xy, rayRefract) : sky(rayRefract);
+    float far2 = (terrainHeight - waterHeight) / rayRefract.z;
+    float dRefract = raytrace(waterOrigin, rayRefract, 0.0, far2, 1.3);
+    vec3 colRefract = dRefract <= far2 ? terrainColAt((waterOrigin + dRefract * rayRefract).xy, rayRefract) : sky(rayRefract);
 
     // Schlick's approximation
     float reflectance = airWater + (1.0 - airWater) * pow(1.0 - dot(ray, waterNorm), 5.0);
@@ -389,8 +416,9 @@ vec3 render(vec3 ray) {
   vec3 colRefract = terrainColAt((waterOrigin + dRefract * rayRefract).xy, rayRefract);
 
   rayReflect.z = abs(rayReflect.z); // assume rays which reflect downwards will eventually reflect back up
-  float dReflect = raytrace(waterOrigin, rayReflect, 0.0, (terrainHeight - waterHeight) / rayReflect.z, 1.3);
-  vec3 colReflect = dReflect >= 0.0 ? terrainColAt((waterOrigin + dReflect * rayReflect).xy, rayReflect) : sky(rayReflect);
+  float far2 = (terrainHeight - waterHeight) / rayReflect.z;
+  float dReflect = raytrace(waterOrigin, rayReflect, 0.0, far2, 1.1);
+  vec3 colReflect = dReflect <= far2 ? terrainColAt((waterOrigin + dReflect * rayReflect).xy, rayReflect) : sky(rayReflect);
 
   // Schlick's approximation
   float reflectance = airWater + (1.0 - airWater) * pow(1.0 + dot(ray, waterNorm), 5.0);
@@ -402,11 +430,7 @@ vec3 render(vec3 ray) {
   );
 }
 
-void main(void) {
-  float inclination = length(pfov);
-  vec3 ray = view * -vec3(sin(inclination) * pfov / inclination, cos(inclination));
-
-  vec3 c = render(ray);
+vec3 convertToDisplayColourSpace(vec3 c) {
   c *= 0.5;
   if (isP3) {
     c = pow(c, vec3(1.0 / 2.2));
@@ -416,7 +440,17 @@ void main(void) {
     // TODO: instead, convert both from a physically meaningful space
     c *= mat3(1.2249, -0.2247, 0.0, -0.0420, 1.0419, 0.0, -0.0197, -0.0786, 1.0979);
   }
-  col = vec4(c + texture(noise, ray.xy * 10000.0).yyy * (1.0 / 256.0), 1.0);
+  return c;
+}
+
+void main(void) {
+  float inclination = length(pfov);
+  vec3 ray = view * -vec3(sin(inclination) * pfov / inclination, cos(inclination));
+
+  vec3 c = render(ray);
+  c = convertToDisplayColourSpace(c);
+  c += texture(noise, pfov.xy * 10000.0).yyy * (1.0 / 256.0);
+  col = vec4(c, 1.0);
 }`;
 
 const QUAD_ATTRIB_LOCATION = 0;

@@ -49,7 +49,7 @@ const FORM_CONFIG = [
     title: 'Snow',
     rows: [
       [
-        { label: 'Low Height', key: 'snow.low', type: 'number', min: 0, max: 3, def: 0.8 },
+        { label: 'Low Height', key: 'snow.low', type: 'number', min: 0, max: 3, def: 0.81 },
         { label: 'High Height', key: 'snow.high', type: 'number', min: 0, max: 3, def: 0.9 },
         { label: 'Slope Falloff', key: 'snow.slope', type: 'number', min: -1, max: 1, def: 0.3 },
       ],
