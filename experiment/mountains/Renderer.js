@@ -45,12 +45,12 @@ uniform float perlinLargeZoom;
 uniform float perlinLargeHeight;
 uniform float rippleZoom;
 uniform float rippleHeight;
+uniform float shadowBlur;
 uniform vec2 rippleShift;
 
 const float PERLIN_SCALE = 1.92;
 const float PERLIN_DIVIDE = 2.0;
 const float PERLIN_SHIFT_ANGLE = 0.7;
-const float SHADOW_BLUR = 0.2;
 
 const float inf = 1.0 / 0.0;
 
@@ -189,10 +189,6 @@ float raytune2(vec3 o, vec3 ray, float d, float range) {
 }
 
 float raytrace(vec3 o, vec3 ray, float near, float far, float dm) {
-  if (near < 0.0 || far <= near) {
-    return inf;
-  }
-
   float maxGrad = terrainHeight * 2.0;
   float gradStep = 1.0 / (length(ray.xy) * maxGrad - ray.z);
 
@@ -207,7 +203,7 @@ float raytrace(vec3 o, vec3 ray, float near, float far, float dm) {
   far += shift;
   float d = near + g * gradStep * sharpNoise(ray.xy).y;
 
-  for (int i = 0; i < 500; ++i) {
+  for (int i = 0; i < 400; ++i) {
     d = min(d, far);
     p = o + (d - shift) * ray;
     g = elevationAt(p);
@@ -224,29 +220,30 @@ float raytrace(vec3 o, vec3 ray, float near, float far, float dm) {
 }
 
 float shadowtrace(vec3 o, vec3 ray) {
-  if (ray.z < 0.001) {
+  float vis = min(1.0, ray.z / shadowBlur);
+  if (vis < -0.9) {
     return 0.0;
   }
 
   float maxGrad = terrainHeight * 2.0;
-  float gradStep = 1.0 / (length(ray.xy) * maxGrad - (ray.z - SHADOW_BLUR));
+  float gradStep = 1.0 / (length(ray.xy) * maxGrad - (ray.z - shadowBlur));
 
-  float l = (o.z - terrainHeight) / -ray.z;
-  float step = max(0.2, l * 0.01);
-  float vis = 1.0;
+  float step = clamp(((o.z - terrainHeight) / -ray.z) * 0.01, 0.1, 0.5);
   float d = step * (sharpNoise(o.xy).y * 0.5 + 0.01);
-  while (d < l) {
+  for (int i = 0; i < 30; ++i) {
+    float range = shadowBlur * d;
     vec3 p = o + d * ray;
+    if (range * 0.1 > terrainHeight || p.z - range > terrainHeight) {
+      break;
+    }
     float g = elevationAt(p);
-    float range = SHADOW_BLUR * d;
-    float pvis = linearstep(-range, range, g);
-    vis *= pow(pvis, step * 5.0);
-    if (vis < 0.05) {
+    vis = min(vis, g / range);
+    if (vis < -0.9) {
       return 0.0;
     }
     d += max(step, g * gradStep);
   }
-  return vis;
+  return vis * 0.5 + 0.5;
 }
 `;
 
@@ -575,6 +572,9 @@ void upscaleLowRes(vec3 ray, float far, out float d, out float dWaterAdjust, out
     i = lowres11.zw;
   } else {
     i = vec2(-1.0); // calculate for this pixel when needed
+    if (min(min(lowres00.z, lowres01.z), min(lowres10.z, lowres11.z)) > 0.99) {
+      i.x = 1.0;
+    }
   }
   shadow = i.x;
   shadow2 = i.y;
@@ -610,8 +610,6 @@ vec3 render(vec3 ray) {
     }
     return c;
   }
-
-  d -= far;
 
   if (origin.z >= waterHeight && ray.z > 0.0) {
     // sky
@@ -664,8 +662,14 @@ vec3 render(vec3 ray) {
   vec3 rayRefract = refract(ray, waterNorm, nAir / nWater);
   rayRefract.z = -abs(rayRefract.z); // don't allow waves to cause refraction to go upwards
   // difference between 'far' for low/high res means we need to tune here to avoid stripes
-  float dRefract = raytune2(waterOrigin, rayRefract, d, tuning);
-  vec3 colRefract = terrainColAt((waterOrigin + dRefract * rayRefract).xy, rayRefract, shadow2);
+  float dRefract = raytune2(waterOrigin, rayRefract, d - far, tuning);
+  float refractionVis = pow(waterFog, dRefract);
+  vec3 colRefract;
+  if (refractionVis > 0.05) {
+    colRefract = mix(waterCol, terrainColAt((waterOrigin + dRefract * rayRefract).xy, rayRefract, shadow2), refractionVis);
+  } else {
+    colRefract = waterCol;
+  }
 
   rayReflect.z = abs(rayReflect.z); // assume rays which reflect downwards will eventually reflect back up
   float far2 = (terrainHeight - waterHeight) / rayReflect.z;
@@ -675,11 +679,7 @@ vec3 render(vec3 ray) {
   // Schlick's approximation
   float reflectance = airWater + (1.0 - airWater) * pow(1.0 + dot(ray, waterNorm), 5.0);
 
-  return mix(
-    mix(waterCol, colRefract, pow(waterFog, dRefract)),
-    colReflect,
-    clamp(depth * 40.0, 0.0, reflectance)
-  );
+  return mix(colRefract, colReflect, clamp(depth * 40.0, 0.0, reflectance));
 }
 
 vec3 convertToDisplayColourSpace(vec3 c) {
@@ -803,6 +803,7 @@ class Renderer {
       .withUniform1f('rippleZoom')
       .withUniform1f('rippleHeight')
       .withUniform2f('rippleShift')
+      .withUniform1f('shadowBlur')
       .withUniform1f('snowLow')
       .withUniform1f('snowHigh')
       .withUniform1f('snowSlope')
@@ -833,6 +834,7 @@ class Renderer {
       .withUniform1f('rippleZoom')
       .withUniform1f('rippleHeight')
       .withUniform2f('rippleShift')
+      .withUniform1f('shadowBlur')
       .withUniform1f('snowLow')
       .withUniform1f('snowHigh')
       .withUniform1f('snowSlope')
@@ -945,6 +947,7 @@ class Renderer {
       rippleZoom: config.ripple.zoom,
       rippleHeight: config.ripple.height,
       rippleShift: [config.ripple.shift.x, config.ripple.shift.y],
+      shadowBlur: config.shadowBlur,
       snowLow: config.snow.low,
       snowHigh: config.snow.high,
       snowSlope: config.snow.slope,
@@ -976,6 +979,7 @@ class Renderer {
       rippleZoom: config.ripple.zoom,
       rippleHeight: config.ripple.height,
       rippleShift: [config.ripple.shift.x, config.ripple.shift.y],
+      shadowBlur: config.shadowBlur,
       snowLow: config.snow.low,
       snowHigh: config.snow.high,
       snowSlope: config.snow.slope,

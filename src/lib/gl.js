@@ -122,6 +122,9 @@ class Program {
 
   set(uniforms) {
     for (const name in uniforms) {
+      if (!this.uniforms.has(name)) {
+        throw new Error(`unknown uniform: ${name}`);
+      }
       const { type, location } = this.uniforms.get(name);
       const v = uniforms[name];
       if (Array.isArray(v)) {

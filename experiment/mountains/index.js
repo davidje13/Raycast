@@ -8,7 +8,7 @@ const FORM_CONFIG = [
     title: 'Scene',
     rows: [
       [
-        { key: 'resolution', type: 'const', value: 0.25, fullValue: 1 },
+        { key: 'resolution', type: 'const', value: 0.5, fullValue: 1 },
         { label: 'Colorspace', key: 'colorspace', type: 'option', options: ['srgb', 'display-p3'], def: 'display-p3' },
         { label: 'Grid', key: 'grid', type: 'boolean', def: false },
       ],
@@ -62,6 +62,7 @@ const FORM_CONFIG = [
         { label: 'X', key: 'sun.x', type: 'number', min: -1, max: 1, def: -0.4 },
         { label: 'Y', key: 'sun.y', type: 'number', min: -1, max: 1, def: -0.6 },
         { label: 'Z', key: 'sun.z', type: 'number', min: -1, max: 1, def: 0.2 },
+        { label: 'Shadow blur', key: 'shadowBlur', type: 'number', min: 0, max: 0.5, def: 0.15 },
       ],
     ],
   },
