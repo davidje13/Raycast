@@ -1,6 +1,7 @@
 'use strict';
 
 const NOISE_SIZE = 1024;
+const DOWNSCALE = 6;
 
 const RENDER_VERT = `#version 300 es
 precision mediump float;
@@ -49,6 +50,7 @@ uniform vec2 rippleShift;
 const float PERLIN_SCALE = 1.92;
 const float PERLIN_DIVIDE = 2.0;
 const float PERLIN_SHIFT_ANGLE = 0.7;
+const float SHADOW_BLUR = 0.2;
 
 const float inf = 1.0 / 0.0;
 
@@ -142,7 +144,7 @@ float elevationAt(vec3 pos) {
 }
 
 vec3 waterAt(vec2 pos, float depth) {
-  vec3 sumLarge = vec3(0.0, 0.0, 0.5 * 3.0);
+  vec3 sumLarge = vec3(0.0, 0.0, 0.0);
   vec2 p = pos * rippleZoom;
   mat2 rot = mat2(1.0, 0.0, 0.0, 1.0) * rippleZoom;
   for (int i = 0; i < 3; i++) {
@@ -153,6 +155,18 @@ vec3 waterAt(vec2 pos, float depth) {
   }
   sumLarge *= (1.0 / 3.0);
   return sumLarge * rippleHeight * linearstep(0.002, 0.02, depth);
+}
+
+float raytraceWater(vec3 o, vec3 ray, float depth) {
+  float d = (o.z - waterHeight) / -ray.z;
+  float range = 0.05;
+  for (int i = 0; i < 1; i++) {
+    vec3 p = o + d * ray;
+    vec3 g = waterAt(p.xy, depth);
+    d += clamp((p.z - waterHeight - g.z) / (dot(g.xy, ray.xy) - ray.z), -range, range);
+    range *= 0.5;
+  }
+  return d;
 }
 
 float raytune0(vec3 o, vec3 ray, float d, float range) {
@@ -206,15 +220,16 @@ float raytrace(vec3 o, vec3 ray, float near, float far, float dm) {
     near = d;
     d = max(d * dm, d + g * gradStep);
   }
+  return inf;
 }
 
-float shadowtrace(vec3 o, vec3 ray, float blur) {
+float shadowtrace(vec3 o, vec3 ray) {
   if (ray.z < 0.001) {
     return 0.0;
   }
 
   float maxGrad = terrainHeight * 2.0;
-  float gradStep = 1.0 / (length(ray.xy) * maxGrad - (ray.z - blur));
+  float gradStep = 1.0 / (length(ray.xy) * maxGrad - (ray.z - SHADOW_BLUR));
 
   float l = (o.z - terrainHeight) / -ray.z;
   float step = max(0.2, l * 0.01);
@@ -223,7 +238,7 @@ float shadowtrace(vec3 o, vec3 ray, float blur) {
   while (d < l) {
     vec3 p = o + d * ray;
     float g = elevationAt(p);
-    float range = blur * d;
+    float range = SHADOW_BLUR * d;
     float pvis = linearstep(-range, range, g);
     vis *= pow(pvis, step * 5.0);
     if (vis < 0.05) {
@@ -274,26 +289,58 @@ void main(void) {
     ray,
     origin.z > terrainHeight ? dTop : 0.0,
     far,
-    1.02
+    1.01
   );
 
+  float dWaterAdjust;
+  float shadow;
+  float shadow2;
   if (d <= 0.0) {
     // burried
-    col = vec4(0.0, 0.0, 0.0, 0.0);
+    d = 0.0;
+    dWaterAdjust = 0.0;
+    shadow = 0.0;
+    shadow2 = 0.0;
   } else if (d <= far) {
     // land
     vec3 p = origin + ray * d;
     vec3 terrain = terrainAndGrad15(p.xy);
     vec3 norm = normalize(vec3(-terrain.xy, 1.0));
-    col = vec4(d, dot(sun, norm) > 0.0 ? shadowtrace(p, sun, 0.2) : 0.0, 0.0, 0.0);
+    dWaterAdjust = 0.0;
+    shadow = dot(sun, norm) > 0.0 ? shadowtrace(p, sun) : 0.0;
+    shadow2 = shadow;
   } else if (origin.z >= waterHeight && ray.z > 0.0) {
     // sky
-    col = vec4(inf, 1.0, 0.0, 0.0);
+    d = inf;
+    dWaterAdjust = 0.0;
+    shadow = 1.0;
+    shadow2 = 1.0;
   } else {
     // water
-    vec3 p = origin + ray * dWater;
-    col = vec4(inf, shadowtrace(p, sun, 0.2), 0.0, 0.0);
+
+    vec3 waterOrigin = origin + ray * dWater;
+    float depth = waterHeight - terrainAndGrad15(waterOrigin.xy).z;
+    float dWaterAdjusted = raytraceWater(origin, ray, depth);
+    vec3 waterNorm = normalize(vec3(-waterAt((origin + ray * dWaterAdjusted).xy, depth).xy, 1.0));
+
+    dWaterAdjust = dWaterAdjusted - dWater;
+    shadow = shadowtrace(waterOrigin, sun);
+
+    if (origin.z < waterHeight) {
+      // looking up (store internal reflection)
+      d = inf; // TODO
+      shadow2 = -1.0;
+    } else {
+      // looking down (store refraction)
+      vec3 rayRefract = refract(ray, waterNorm, nAir / nWater);
+      rayRefract.z = -abs(rayRefract.z); // don't allow waves to cause refraction to go upwards
+      d = raytrace(waterOrigin, rayRefract, 0.0, waterHeight / -rayRefract.z, 1.3);
+      // TODO: would be nice to account for refraction of sunlight
+      shadow2 = shadowtrace(waterOrigin + d * rayRefract, sun);
+    }
+    d += far;
   }
+  col = vec4(d, dWaterAdjust, shadow, shadow2);
 }`;
 
 const RENDER_FRAG_TERRAIN = `#version 300 es
@@ -364,8 +411,10 @@ vec3 terrainColAt(vec2 p, vec3 ray, float shadow) {
   vec3 diffuseCol = skyScatter(norm) + sunDiskCol * max(dot(sun, norm), 0.0);
   float innerScatter = dot(sun, norm) * 0.5 + 0.5;
   vec3 ambientCol = skyScatter(vec3(0.0, 0.0, 1.0)) + sunDiskCol * smoothstep(-0.4, 0.4, sun.z);
-  if (shadow == -1.0) {
-    shadow = dot(sun, norm) > 0.0 ? shadowtrace(vec3(p, terrain.z), sun, 0.2) : 0.0;
+  if (dot(sun, norm) <= 0.0) {
+    shadow = 0.0;
+  } else if (shadow == -1.0) {
+    shadow = shadowtrace(vec3(p, terrain.z), sun);
   }
   diffuseCol *= shadow * 0.8 + 0.2;
   ambientCol *= shadow * 0.7 + 0.3;
@@ -446,18 +495,30 @@ vec3 terrainColAt(vec2 p, vec3 ray, float shadow) {
   return c;
 }
 
-vec2 upscaleLowRes(vec3 ray) {
-  vec2 fragcoord = gl_FragCoord.xy * 0.25;
+const float tuning = 0.15;
+
+void upscaleLowRes(vec3 ray, float far, out float d, out float dWaterAdjust, out float shadow, out float shadow2) {
+  vec2 fragcoord = gl_FragCoord.xy * ${1 / DOWNSCALE};
   ivec2 lowpos = ivec2(fragcoord);
   vec2 lowfract = fract(fragcoord) - 0.5;
   ivec2 lowshift = ivec2(step(0.0, lowfract) * 2.0 - 1.0);
-  vec2 lowres00 = texelFetch(lowResDepth, lowpos, 0).xy;
-  vec2 lowres10 = texelFetch(lowResDepth, lowpos + ivec2(lowshift.x, 0), 0).xy;
-  vec2 lowres01 = texelFetch(lowResDepth, lowpos + ivec2(0, lowshift.y), 0).xy;
-  vec2 lowres11 = texelFetch(lowResDepth, lowpos + lowshift, 0).xy;
+  if (lowpos.x == 0 && lowshift.x == -1) {
+    lowshift.x = 0;
+  }
+  if (lowpos.y == 0 && lowshift.y == -1) {
+    lowshift.y = 0;
+  }
+  vec4 lowres00 = texelFetch(lowResDepth, lowpos, 0);
+  vec4 lowres10 = texelFetch(lowResDepth, lowpos + ivec2(lowshift.x, 0), 0);
+  vec4 lowres01 = texelFetch(lowResDepth, lowpos + ivec2(0, lowshift.y), 0);
+  vec4 lowres11 = texelFetch(lowResDepth, lowpos + lowshift, 0);
 
   if (lowres00.x == 0.0) {
-    return lowres00;
+    d = 0.0;
+    dWaterAdjust = 0.0;
+    shadow = 0.0;
+    shadow2 = 0.0;
+    return;
   }
 
   float d0 = lowres00.x;
@@ -471,21 +532,25 @@ vec2 upscaleLowRes(vec3 ray) {
   if (d2 < d1) { float t = d1; d1 = d2; d2 = t; }
   if (d1 < d0) { float t = d0; d0 = d1; d1 = t; }
 
-  float d;
-  d0 = raytune2(origin, ray, d0, 0.15);
-  if (elevationAt(origin + ray * (d0 + 0.01)) <= 0.0) { d = d0; }
-  else {
-    if (d1 < d0 + 0.05) {
-      d1 = d2;
-      d2 = d3;
+  bool crude = d0 > far;
+  if (crude) {
+    d = (d0 + d1 + d2 + d3) * 0.25;
+  } else {
+    d0 = raytune2(origin, ray, d0, tuning);
+    if (elevationAt(origin + ray * (d0 + 0.01)) <= 0.0) { d = d0; }
+    else {
       if (d1 < d0 + 0.05) {
         d1 = d2;
+        d2 = d3;
+        if (d1 < d0 + 0.05) {
+          d1 = d2;
+        }
       }
+      d1 = raytune2(origin, ray, d1, tuning);
+      if (elevationAt(origin + ray * (d1 + 0.02)) <= 0.0) { d = d1; }
+      else if (elevationAt(origin + ray * (d2 + 0.05)) <= 0.0) { d = d2; }
+      else { d = d3; }
     }
-    d1 = raytune2(origin, ray, d1, 0.15);
-    if (elevationAt(origin + ray * (d1 + 0.02)) <= 0.0) { d = d1; }
-    else if (elevationAt(origin + ray * (d2 + 0.05)) <= 0.0) { d = d2; }
-    else { d = d3; }
   }
 
   lowfract = abs(lowfract);
@@ -495,22 +560,24 @@ vec2 upscaleLowRes(vec3 ray) {
   float m11 = linearstep(0.5, 0.0, abs(lowres11.x - d)) + lowfract.x * lowfract.y * 0.0001;
   float mt = m00 + m01 + m10 + m11;
 
-  float shadow;
-  if (mt < 0.2) {
-    shadow = (lowres00.y * m00 + lowres01.y * m01 + lowres10.y * m10 + lowres11.y * m11) / mt;
-  } else if (m00 > 0.999) {
-    shadow = lowres00.y;
-  } else if (m01 > 0.999) {
-    shadow = lowres01.y;
-  } else if (m10 > 0.999) {
-    shadow = lowres10.y;
-  } else if (m11 > 0.999) {
-    shadow = lowres11.y;
-  } else {
-    shadow = -1.0; // calculate for this pixel when needed
-  }
+  dWaterAdjust = (lowres00.y * m00 + lowres01.y * m01 + lowres10.y * m10 + lowres11.y * m11) / mt;
 
-  return vec2(d, shadow);
+  vec2 i;
+  if (mt < 0.2 || crude) {
+    i = (lowres00.zw * m00 + lowres01.zw * m01 + lowres10.zw * m10 + lowres11.zw * m11) / mt;
+  } else if (m00 > 0.999) {
+    i = lowres00.zw;
+  } else if (m01 > 0.999) {
+    i = lowres01.zw;
+  } else if (m10 > 0.999) {
+    i = lowres10.zw;
+  } else if (m11 > 0.999) {
+    i = lowres11.zw;
+  } else {
+    i = vec2(-1.0); // calculate for this pixel when needed
+  }
+  shadow = i.x;
+  shadow2 = i.y;
 }
 
 vec3 render(vec3 ray) {
@@ -518,19 +585,21 @@ vec3 render(vec3 ray) {
   float dWater = (origin.z - waterHeight) / -ray.z;
   float dBase = origin.z / -ray.z;
 
-  vec2 upscaled = upscaleLowRes(ray);
-  float d = upscaled.x;
-  float shadow = upscaled.y;
+  float far = (origin.z > waterHeight)
+    ? (ray.z > 0.0 ? dTop : dWater)
+    : (ray.z > 0.0 ? dWater : dBase);
+
+  float d;
+  float dWaterAdjust;
+  float shadow;
+  float shadow2;
+  upscaleLowRes(ray, far, d, dWaterAdjust, shadow, shadow2);
 
   if (d == 0.0) {
     return vec3(0.15, 0.1, 0.05);
   }
 
   vec3 waterCol = vec3(0.00, 0.01, 0.03) * sunDiskCol * smoothstep(-0.2, 0.4, sun.z);
-
-  float far = (origin.z > waterHeight)
-    ? (ray.z > 0.0 ? dTop : dWater)
-    : (ray.z > 0.0 ? dWater : dBase);
 
   if (d < far) {
     // ground
@@ -542,6 +611,8 @@ vec3 render(vec3 ray) {
     return c;
   }
 
+  d -= far;
+
   if (origin.z >= waterHeight && ray.z > 0.0) {
     // sky
     return sky(ray);
@@ -549,11 +620,11 @@ vec3 render(vec3 ray) {
 
   vec3 waterOrigin = origin + ray * dWater;
   if (shadow == -1.0) {
-    shadow = shadowtrace(waterOrigin, sun, 0.3);
+    shadow = shadowtrace(waterOrigin, sun);
   }
   waterCol *= shadow * 0.8 + 0.2;
   float depth = waterHeight - terrainAndGrad15(waterOrigin.xy).z;
-  vec3 waterNorm = normalize(vec3(-waterAt(waterOrigin.xy, depth).xy, 1.0));
+  vec3 waterNorm = normalize(vec3(-waterAt((origin + ray * (dWater + dWaterAdjust)).xy, depth).xy, 1.0));
 
   // water interaction
   vec3 rayReflect = reflect(ray, waterNorm);
@@ -592,13 +663,14 @@ vec3 render(vec3 ray) {
   // refraction into water
   vec3 rayRefract = refract(ray, waterNorm, nAir / nWater);
   rayRefract.z = -abs(rayRefract.z); // don't allow waves to cause refraction to go upwards
-  float dRefract = raytrace(waterOrigin, rayRefract, 0.0, waterHeight / -rayRefract.z, 1.3);
-  vec3 colRefract = terrainColAt((waterOrigin + dRefract * rayRefract).xy, rayRefract, -1.0);
+  // difference between 'far' for low/high res means we need to tune here to avoid stripes
+  float dRefract = raytune2(waterOrigin, rayRefract, d, tuning);
+  vec3 colRefract = terrainColAt((waterOrigin + dRefract * rayRefract).xy, rayRefract, shadow2);
 
   rayReflect.z = abs(rayReflect.z); // assume rays which reflect downwards will eventually reflect back up
   float far2 = (terrainHeight - waterHeight) / rayReflect.z;
   float dReflect = raytrace(waterOrigin, rayReflect, 0.0, far2, 1.1);
-  vec3 colReflect = dReflect <= far2 ? terrainColAt((waterOrigin + dReflect * rayReflect).xy, rayReflect, -1.0) : sky(rayReflect);
+  vec3 colReflect = dReflect <= far2 ? terrainColAt((waterOrigin + dReflect * rayReflect).xy, rayReflect, 0.4) : sky(rayReflect);
 
   // Schlick's approximation
   float reflectance = airWater + (1.0 - airWater) * pow(1.0 + dot(ray, waterNorm), 5.0);
@@ -637,8 +709,8 @@ const QUAD_ATTRIB_LOCATION = 0;
 
 class Renderer {
   constructor(canvas, { width, height }) {
-    this.width = (width + 3) & ~3;
-    this.height = (height + 3) & ~3;
+    this.width = Math.ceil(width / DOWNSCALE) * DOWNSCALE;
+    this.height = Math.ceil(height / DOWNSCALE) * DOWNSCALE;
     this.lastSetConfig = {};
 
     canvas.addEventListener('webglcontextlost', (e) => {
@@ -689,9 +761,9 @@ class Renderer {
       wrap: GL.CLAMP,
       mag: GL.NEAREST,
       min: GL.NEAREST,
-      format: getFloatBufferFormats(this.ctx).rg,
-      width: this.width / 4,
-      height: this.height / 4,
+      format: getFloatBufferFormats(this.ctx).rgba,
+      width: this.width / DOWNSCALE,
+      height: this.height / DOWNSCALE,
     });
     this.lowResDepthBuffer = this.ctx.createFramebuffer();
     this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, this.lowResDepthBuffer);
@@ -853,12 +925,12 @@ class Renderer {
     const fovy = config.view.fovy * -0.5;
 
     this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, this.lowResDepthBuffer);
-    this.ctx.viewport(0, 0, viewport[2] / 4, viewport[3] / 4);
+    this.ctx.viewport(0, 0, viewport[2] / DOWNSCALE, viewport[3] / DOWNSCALE);
     this.renderLowResDepthProgram.use({
       origin: xyzTo3f(origin),
       view: [false, mat4xyz(view)],
       fov: [fovx, fovy],
-      shift: [0, 0],//[(1 / 4 - 1) / (2 * this.width), (1 / 4 - 1) / (2 * this.height)],
+      shift: [0, 0],//[(1 / DOWNSCALE - 1) / (2 * this.width), (1 / DOWNSCALE - 1) / (2 * this.height)],
       sun: xyzTo3f(norm3(config.sun)),
       noise: { index: 0, texture: this.noiseTex },
       terrainHeight: config.terrainHeight,
