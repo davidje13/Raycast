@@ -529,38 +529,43 @@ void upscaleLowRes(vec3 ray, float far, out float d, out float dWaterAdjust, out
   if (d2 < d1) { float t = d1; d1 = d2; d2 = t; }
   if (d1 < d0) { float t = d0; d0 = d1; d1 = t; }
 
-  bool crude = d0 > far;
-  if (crude) {
-    d = (d0 + d1 + d2 + d3) * 0.25;
-  } else {
-    d0 = raytune2(origin, ray, d0, tuning);
-    if (elevationAt(origin + ray * (d0 + 0.01)) <= 0.0) { d = d0; }
-    else {
-      if (d1 < d0 + 0.05) {
-        d1 = d2;
-        d2 = d3;
-        if (d1 < d0 + 0.05) {
-          d1 = d2;
-        }
-      }
-      d1 = raytune2(origin, ray, d1, tuning);
-      if (elevationAt(origin + ray * (d1 + 0.02)) <= 0.0) { d = d1; }
-      else if (elevationAt(origin + ray * (d2 + 0.05)) <= 0.0) { d = d2; }
-      else { d = d3; }
-    }
+  lowfract = abs(lowfract);
+  float m00 = (1.0 - lowfract.x) * (1.0 - lowfract.y);
+  float m01 = (1.0 - lowfract.x) * lowfract.y;
+  float m10 = lowfract.x * (1.0 - lowfract.y);
+  float m11 = lowfract.x * lowfract.y;
+
+  if (d0 > far) {
+    vec4 i = lowres00 * m00 + lowres01 * m01 + lowres10 * m10 + lowres11 * m11;
+    d = i.x;
+    dWaterAdjust = i.y;
+    shadow = i.z;
+    shadow2 = i.w;
+    return;
   }
 
-  lowfract = abs(lowfract);
-  float m00 = linearstep(0.5, 0.0, abs(lowres00.x - d)) + (1.0 - lowfract.x) * (1.0 - lowfract.y) * 0.0001;
-  float m01 = linearstep(0.5, 0.0, abs(lowres01.x - d)) + (1.0 - lowfract.x) * lowfract.y * 0.0001;
-  float m10 = linearstep(0.5, 0.0, abs(lowres10.x - d)) + lowfract.x * (1.0 - lowfract.y) * 0.0001;
-  float m11 = linearstep(0.5, 0.0, abs(lowres11.x - d)) + lowfract.x * lowfract.y * 0.0001;
+  d0 = raytune2(origin, ray, d0, tuning);
+  if (elevationAt(origin + ray * (d0 + 0.01)) <= 0.0) { d = d0; }
+  else {
+    if (d1 < d0 + 0.01) {
+      d1 = d2;
+      d2 = d3;
+    }
+    d1 = raytune2(origin, ray, d1, tuning);
+    if (elevationAt(origin + ray * (d1 + 0.02)) <= 0.0) { d = d1; }
+    else if (elevationAt(origin + ray * (d2 + 0.05)) <= 0.0) { d = d2; }
+    else { d = d3; }
+  }
+
+  dWaterAdjust = lowres00.y * m00 + lowres01.y * m01 + lowres10.y * m10 + lowres11.y * m11;
+  m00 = linearstep(0.5, 0.0, abs(lowres00.x - d)) + m00 * 0.0001;
+  m01 = linearstep(0.5, 0.0, abs(lowres01.x - d)) + m01 * 0.0001;
+  m10 = linearstep(0.5, 0.0, abs(lowres10.x - d)) + m10 * 0.0001;
+  m11 = linearstep(0.5, 0.0, abs(lowres11.x - d)) + m11 * 0.0001;
   float mt = m00 + m01 + m10 + m11;
 
-  dWaterAdjust = (lowres00.y * m00 + lowres01.y * m01 + lowres10.y * m10 + lowres11.y * m11) / mt;
-
   vec2 i;
-  if (mt < 0.2 || crude) {
+  if (mt < 0.2) {
     i = (lowres00.zw * m00 + lowres01.zw * m01 + lowres10.zw * m10 + lowres11.zw * m11) / mt;
   } else if (m00 > 0.999) {
     i = lowres00.zw;
