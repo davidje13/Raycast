@@ -47,6 +47,10 @@ uniform float rippleZoom;
 uniform float rippleHeight;
 uniform float shadowBlur;
 uniform vec2 rippleShift;
+uniform float waveDist;
+uniform float waveHeight;
+uniform float waveFreq;
+uniform float wavePhase;
 
 const float PERLIN_SCALE = 1.92;
 const float PERLIN_DIVIDE = 2.0;
@@ -143,28 +147,40 @@ float elevationAt(vec3 pos) {
   return pos.z - terrainAndGrad9(pos.xy).z;
 }
 
-vec3 waterAt(vec2 pos, float depth) {
-  vec3 sumLarge = vec3(0.0, 0.0, 0.0);
-  vec2 p = pos * rippleZoom;
-  mat2 rot = mat2(1.0, 0.0, 0.0, 1.0) * rippleZoom;
-  for (int i = 0; i < 3; i++) {
-    vec3 v = noiseAndGrad(p + rippleShift);
-    sumLarge += vec3(v.xy * rot, v.z);
-    p = p * ROT_1_3 + PERLIN_OFFSET;
-    rot *= ROT_1_3;
+vec4 waterAt(vec2 pos) {
+  vec3 g = terrainAndGrad15(pos);
+  float depth = waterHeight - g.z;
+  vec3 ripple = vec3(0.0);
+  float rippleMult = (1.0 / 3.0) * rippleHeight * linearstep(0.002, 0.02, depth);
+  if (rippleMult > 0.0) {
+    vec2 p = pos * rippleZoom;
+    mat2 rot = mat2(1.0, 0.0, 0.0, 1.0) * rippleZoom;
+    for (int i = 0; i < 3; i++) {
+      vec3 v = noiseAndGrad(p + rippleShift);
+      ripple += vec3(v.xy * rot, v.z);
+      p = p * ROT_1_3 + PERLIN_OFFSET;
+      rot *= ROT_1_3;
+    }
+    ripple *= rippleMult;
   }
-  sumLarge *= (1.0 / 3.0);
-  return sumLarge * rippleHeight * linearstep(0.002, 0.02, depth);
+  vec3 wave = vec3(0.0);
+  float waveMult = waveHeight * linearstep(0.0, 0.02, depth) * linearstep(waveDist, 0.01, depth);
+  if (waveMult > 0.0) {
+    vec3 offset = noiseAndGrad(pos * 0.47) * 10.0;
+    float v = offset.z + depth * waveFreq + wavePhase;
+    wave = vec3((offset.xy - g.xy * waveFreq) * cos(v), sin(v)) * waveMult;
+  }
+  return vec4(ripple + wave, depth);
 }
 
-float raytraceWater(vec3 o, vec3 ray, float depth) {
+float raytraceWater(vec3 o, vec3 ray) {
   float d = (o.z - waterHeight) / -ray.z;
   float range = 0.05;
   for (int i = 0; i < 1; i++) {
     vec3 p = o + d * ray;
-    vec3 g = waterAt(p.xy, depth);
+    vec3 g = waterAt(p.xy).xyz;
     d += clamp((p.z - waterHeight - g.z) / (dot(g.xy, ray.xy) - ray.z), -range, range);
-    range *= 0.5;
+    range *= 0.75;
   }
   return d;
 }
@@ -316,9 +332,8 @@ void main(void) {
     // water
 
     vec3 waterOrigin = origin + ray * dWater;
-    float depth = waterHeight - terrainAndGrad15(waterOrigin.xy).z;
-    float dWaterAdjusted = raytraceWater(origin, ray, depth);
-    vec3 waterNorm = normalize(vec3(-waterAt((origin + ray * dWaterAdjusted).xy, depth).xy, 1.0));
+    float dWaterAdjusted = raytraceWater(origin, ray);
+    vec3 waterNorm = normalize(vec3(-waterAt((origin + ray * dWaterAdjusted).xy).xy, 1.0));
 
     dWaterAdjust = dWaterAdjusted - dWater;
     shadow = shadowtrace(waterOrigin, sun);
@@ -626,8 +641,8 @@ vec3 render(vec3 ray) {
     shadow = shadowtrace(waterOrigin, sun);
   }
   waterCol *= shadow * 0.8 + 0.2;
-  float depth = waterHeight - terrainAndGrad15(waterOrigin.xy).z;
-  vec3 waterNorm = normalize(vec3(-waterAt((origin + ray * (dWater + dWaterAdjust)).xy, depth).xy, 1.0));
+  vec4 water = waterAt((origin + ray * (dWater + dWaterAdjust)).xy);
+  vec3 waterNorm = normalize(vec3(-water.xy, 1.0));
 
   // water interaction
   vec3 rayReflect = reflect(ray, waterNorm);
@@ -684,7 +699,7 @@ vec3 render(vec3 ray) {
   // Schlick's approximation
   float reflectance = airWater + (1.0 - airWater) * pow(1.0 + dot(ray, waterNorm), 5.0);
 
-  return mix(colRefract, colReflect, clamp(depth * 40.0, 0.0, reflectance));
+  return mix(colRefract, colReflect, clamp(water.w * 40.0, 0.0, reflectance));
 }
 
 vec3 convertToDisplayColourSpace(vec3 c) {
@@ -808,6 +823,10 @@ class Renderer {
       .withUniform1f('rippleZoom')
       .withUniform1f('rippleHeight')
       .withUniform2f('rippleShift')
+      .withUniform1f('waveDist')
+      .withUniform1f('waveHeight')
+      .withUniform1f('waveFreq')
+      .withUniform1f('wavePhase')
       .withUniform1f('shadowBlur')
       .withUniform1f('snowLow')
       .withUniform1f('snowHigh')
@@ -839,6 +858,10 @@ class Renderer {
       .withUniform1f('rippleZoom')
       .withUniform1f('rippleHeight')
       .withUniform2f('rippleShift')
+      .withUniform1f('waveDist')
+      .withUniform1f('waveHeight')
+      .withUniform1f('waveFreq')
+      .withUniform1f('wavePhase')
       .withUniform1f('shadowBlur')
       .withUniform1f('snowLow')
       .withUniform1f('snowHigh')
@@ -952,6 +975,10 @@ class Renderer {
       rippleZoom: config.ripple.zoom,
       rippleHeight: config.ripple.height,
       rippleShift: [config.ripple.shift.x, config.ripple.shift.y],
+      waveDist: config.wave.distance,
+      waveHeight: config.wave.height,
+      waveFreq: config.wave.frequency,
+      wavePhase: config.wave.phase,
       shadowBlur: config.shadowBlur,
       snowLow: config.snow.low,
       snowHigh: config.snow.high,
@@ -984,6 +1011,10 @@ class Renderer {
       rippleZoom: config.ripple.zoom,
       rippleHeight: config.ripple.height,
       rippleShift: [config.ripple.shift.x, config.ripple.shift.y],
+      waveDist: config.wave.distance,
+      waveHeight: config.wave.height,
+      waveFreq: config.wave.frequency,
+      wavePhase: config.wave.phase,
       shadowBlur: config.shadowBlur,
       snowLow: config.snow.low,
       snowHigh: config.snow.high,

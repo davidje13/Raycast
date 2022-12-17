@@ -43,6 +43,12 @@ const FORM_CONFIG = [
         { label: 'Ripple Shift X', key: 'ripple.shift.x', type: 'number', min: -10, max: 10, def: 0 },
         { label: 'Ripple Shift Y', key: 'ripple.shift.y', type: 'number', min: -10, max: 10, def: 0 },
       ],
+      [
+        { label: 'Wave Distance', key: 'wave.distance', type: 'number', min: 0.02, max: 1, def: 0.05 },
+        { label: 'Wave Height', key: 'wave.height', type: 'number', min: 0, max: 0.002, def: 0.001 },
+        { label: 'Wave Frequency', key: 'wave.frequency', type: 'number', min: 0, max: 1000, def: 200 },
+        { label: 'Wave Phase', key: 'wave.phase', type: 'number', min: -10, max: 10, def: 0 },
+      ],
     ],
   },
   {
