@@ -130,10 +130,10 @@ class Program {
       if (Array.isArray(v)) {
         this.ctx[`uniform${type}`](location, ...v);
       } else if (typeof v === 'object') {
-        const { index, texture } = v;
+        const { index, texture, glEnum = GL.TEXTURE_2D } = v;
         this.ctx.uniform1i(location, index);
         this.ctx.activeTexture(GL.TEXTURE0 + index);
-        this.ctx.bindTexture(GL.TEXTURE_2D, texture);
+        this.ctx.bindTexture(glEnum, texture);
       } else {
         this.ctx[`uniform${type}`](location, v);
       }
@@ -191,6 +191,59 @@ function createEmptyTexture(ctx, {
   ctx.texStorage2D(GL.TEXTURE_2D, 1, format, width, height);
   return texture;
 }
+
+function createEmptyCubeTexture(ctx, {
+  mag = GL.LINEAR,
+  min = GL.LINEAR,
+  format,
+  size,
+}) {
+  const texture = ctx.createTexture();
+  ctx.bindTexture(GL.TEXTURE_CUBE_MAP, texture);
+  ctx.texParameteri(GL.TEXTURE_CUBE_MAP, GL.TEXTURE_MAG_FILTER, mag);
+  ctx.texParameteri(GL.TEXTURE_CUBE_MAP, GL.TEXTURE_MIN_FILTER, min);
+  ctx.texStorage2D(GL.TEXTURE_CUBE_MAP, 1, format, size, size);
+  return texture;
+}
+
+const CUBE_MAP_FACES = [
+  {
+    glEnum: GL.TEXTURE_CUBE_MAP_POSITIVE_X,
+    o: { x: 1, y: 0, z: 0 },
+    dx: { x: 0, y: 0, z: -1 },
+    dy: { x: 0, y: -1, z: 0 },
+  },
+  {
+    glEnum: GL.TEXTURE_CUBE_MAP_NEGATIVE_X,
+    o: { x: -1, y: 0, z: 0 },
+    dx: { x: 0, y: 0, z: 1 },
+    dy: { x: 0, y: -1, z: 0 },
+  },
+  {
+    glEnum: GL.TEXTURE_CUBE_MAP_POSITIVE_Y,
+    o: { x: 0, y: 1, z: 0 },
+    dx: { x: 1, y: 0, z: 0 },
+    dy: { x: 0, y: 0, z: 1 },
+  },
+  {
+    glEnum: GL.TEXTURE_CUBE_MAP_NEGATIVE_Y,
+    o: { x: 0, y: -1, z: 0 },
+    dx: { x: 1, y: 0, z: 0 },
+    dy: { x: 0, y: 0, z: -1 },
+  },
+  {
+    glEnum: GL.TEXTURE_CUBE_MAP_POSITIVE_Z,
+    o: { x: 0, y: 0, z: 1 },
+    dx: { x: 1, y: 0, z: 0 },
+    dy: { x: 0, y: -1, z: 0 },
+  },
+  {
+    glEnum: GL.TEXTURE_CUBE_MAP_NEGATIVE_Z,
+    o: { x: 0, y: 0, z: -1 },
+    dx: { x: -1, y: 0, z: 0 },
+    dy: { x: 0, y: -1, z: 0 },
+  },
+];
 
 function glslRandom(name, quality) {
   // thanks, https://gaim.umbc.edu/2010/07/01/gpu-random-numbers/

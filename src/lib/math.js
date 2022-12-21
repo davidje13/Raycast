@@ -50,6 +50,15 @@ function mix3(a, b, v) {
   return { x: mix(a.x, b.x, v), y: mix(a.y, b.y, v), z: mix(a.z, b.z, v) };
 }
 
+function linearstep(l, u, v) {
+  return Math.max(0, Math.min(1, (v - l) / (u - l)));
+}
+
+function smoothstep(l, u, v) {
+  const t = linearstep(l, u, v);
+  return t * t * (3 - 2 * t);
+}
+
 function hermiteInterpolate(v, d) {
   if (v < -d) {
     return 0;

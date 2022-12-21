@@ -1,7 +1,28 @@
 'use strict';
 
 const NOISE_SIZE = 1024;
+const SKY_SIZE = 64;
 const DOWNSCALE = 6;
+const SKY_HORIZON_FOCUS = 4.0;
+
+const SUN_DISK_COL = { x: 8, y: 7.2, z: 5.7 };
+const PERLIN_SCALE = 1.92;
+const PERLIN_SHIFT_ANGLE = 0.7;
+const PERLIN_DIVIDE = 2.0;
+
+const HELPER_FNS = `
+float linearstep(float edge0, float edge1, float x) {
+  return clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+}
+
+vec3 rayToSkybox(vec3 normRay) {
+  return normRay * vec3(${glslFloat(1 / SKY_HORIZON_FOCUS)}, ${glslFloat(1 / SKY_HORIZON_FOCUS)}, 1.0);
+}
+
+vec3 skyboxToRay(vec3 sb) {
+  return normalize(sb * vec3(${glslFloat(SKY_HORIZON_FOCUS)}, ${glslFloat(SKY_HORIZON_FOCUS)}, 1.0));
+}
+`;
 
 const RENDER_VERT = `#version 300 es
 precision mediump float;
@@ -18,6 +39,58 @@ void main(void) {
   gl_Position = vec4(v, 0.0, 1.0);
 }`;
 
+const RENDER_VERT_SKYBOX = `#version 300 es
+precision mediump float;
+
+uniform vec3 o;
+uniform vec3 dx;
+uniform vec3 dy;
+in vec2 v;
+out vec3 p;
+
+void main(void) {
+  p = o + v.x * dx + v.y * dy;
+  gl_Position = vec4(v, 0.0, 1.0);
+}`;
+
+const RENDER_FRAG_SKYBOX = `#version 300 es
+precision mediump float;
+
+uniform vec3 sun;
+in vec3 p;
+out vec4 col;
+
+${HELPER_FNS}
+
+void main(void) {
+  vec3 ray = skyboxToRay(p);
+  float d = length(cross(ray, sun));
+  if (dot(ray, sun) < 0.0) {
+    d = 2.0 - d;
+  }
+
+  float dAdjusted = d - pow((1.0 - ray.z) * 0.96, 50.0);
+  float thin = sqrt(max(0.0, ray.z));
+  vec3 c = vec3(
+    pow(0.001, dAdjusted - 0.03) * (2.4 - thin * 2.2),
+    pow(0.400, dAdjusted - 0.02) * (2.2 - thin * 1.5),
+    pow(0.700, dAdjusted) * (2.0 - thin * 1.0)
+  ) * (smoothstep(-0.9, 0.0, sun.z) * 0.95 + 0.05);
+
+  col = vec4(c, 1.0);
+}`;
+
+function calculateAmbientSky(sun) {
+  const dAdjusted = 1 - sun.z;
+  const ambient = smoothstep(-0.9, 0, sun.z) * 0.95 + 0.95;
+  const directSun = smoothstep(-0.4, 0.4, sun.z);
+  return {
+    x: Math.pow(0.001, dAdjusted - 0.03) * 2.4 * ambient + SUN_DISK_COL.x * directSun,
+    y: Math.pow(0.400, dAdjusted - 0.02) * 2.2 * ambient + SUN_DISK_COL.y * directSun,
+    z: Math.pow(0.700, dAdjusted) * 2.0 * ambient + SUN_DISK_COL.z * directSun,
+  };
+}
+
 const RENDER_FRAG_NOISE = `#version 300 es
 precision mediump float;
 
@@ -28,16 +101,6 @@ ${glslRandom('random', 6)}
 void main(void) {
   col = vec4(random(uvec2(gl_FragCoord.x, gl_FragCoord.y)), 0.0, 1.0);
 }`;
-
-const HELPER_FNS = `
-float linearstep(float edge0, float edge1, float x) {
-  return clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
-}
-`;
-
-const PERLIN_SCALE = 1.92;
-const PERLIN_SHIFT_ANGLE = 0.7;
-const PERLIN_DIVIDE = 2.0;
 
 const TERRAIN_FNS = `
 #define SMOOTHNESS 2
@@ -380,6 +443,7 @@ const RENDER_FRAG_TERRAIN = `#version 300 es
 precision mediump float;
 
 uniform sampler2D lowResDepth;
+uniform samplerCube skybox;
 uniform vec3 origin;
 uniform mat3 view;
 uniform float waterHeight;
@@ -389,6 +453,8 @@ uniform float snowLow;
 uniform float snowHigh;
 uniform float snowSlope;
 uniform vec3 sun;
+uniform vec3 sunDiskCol;
+uniform vec3 skyAmbientCol;
 uniform bool grid;
 uniform bool isP3;
 
@@ -399,32 +465,13 @@ out vec4 col;
 ${HELPER_FNS}
 ${TERRAIN_FNS}
 
-const vec3 sunDiskCol = vec3(8.0, 7.2, 5.7);
-
-vec3 skyScatterInternal(float d, float z) {
-  d -= pow(0.96 - z, 50.0);
-  float thin = sqrt(z);
-  return vec3(
-    pow(0.001, d - 0.03) * (2.4 - thin * 2.2),
-    pow(0.400, d - 0.02) * (2.2 - thin * 1.5),
-    pow(0.700, d) * (2.0 - thin * 1.0)
-  ) * (smoothstep(-0.9, 0.0, sun.z) * 0.95 + 0.05);
-}
-
-vec3 skyScatter(vec3 ray) {
-  float d = length(cross(ray, sun));
-  if (dot(ray, sun) < 0.0) {
-    d = 2.0 - d;
-  }
-  return skyScatterInternal(d, ray.z);
+vec3 rawSkybox(vec3 ray) {
+  return texture(skybox, rayToSkybox(ray)).xyz;
 }
 
 vec3 sky(vec3 ray) {
-  float d = length(cross(ray, sun));
-  if (dot(ray, sun) < 0.0) {
-    d = 2.0 - d;
-  }
-  return skyScatterInternal(d, ray.z) + sunDiskCol * pow(linearstep(0.03, 0.02, d), 10.0);
+  float d = dot(ray, sun) > 0.0 ? length(cross(ray, sun)) : 1.0;
+  return rawSkybox(ray) + sunDiskCol * smoothstep(0.024, 0.016, d);
 }
 
 vec3 skyFog(vec3 c, vec3 ray, float d) {
@@ -433,15 +480,11 @@ vec3 skyFog(vec3 c, vec3 ray, float d) {
     m = max(1.0 + ray.z * 3.0, 0.0);
     ray.z = 0.0;
   }
-  return mix(skyScatter(ray) * m, c, pow(atmosphere, d));
-}
-
-vec3 skyAmbient() {
-  return skyScatterInternal(1.0 - sun.z, 0.0);
+  return mix(rawSkybox(ray) * m, c, pow(atmosphere, d));
 }
 
 vec3 skyDiffuse(vec3 norm) {
-  return skyScatter(norm) + sunDiskCol * max(dot(sun, norm), 0.0);
+  return rawSkybox(norm) + sunDiskCol * max(dot(sun, norm), 0.0);
 }
 
 vec3 terrainColAt(vec2 p, vec3 ray, float shadow) {
@@ -459,7 +502,7 @@ vec3 terrainColAt(vec2 p, vec3 ray, float shadow) {
   vec3 reflectCol = sunDiskCol;
   vec3 diffuseCol = skyDiffuse(norm);
   float innerScatter = dot(sun, norm) * 0.5 + 0.5;
-  vec3 ambientCol = skyAmbient() + sunDiskCol * smoothstep(-0.4, 0.4, sun.z);
+  vec3 ambientCol = skyAmbientCol;
   if (dot(sun, norm) <= 0.0) {
     shadow = 0.0;
   } else if (shadow == -1.0) {
@@ -855,10 +898,39 @@ class Renderer {
       0
     );
 
+    this.skyboxTex = createEmptyCubeTexture(this.ctx, {
+      mag: GL.LINEAR,
+      min: GL.LINEAR,
+      format: getFloatBufferFormats(this.ctx).rgba,
+      size: SKY_SIZE,
+    });
+    this.skybox = CUBE_MAP_FACES.map((face) => {
+      const buffer = this.ctx.createFramebuffer();
+      this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, buffer);
+      this.ctx.framebufferTexture2D(
+        GL.DRAW_FRAMEBUFFER,
+        GL.COLOR_ATTACHMENT0,
+        face.glEnum,
+        this.skyboxTex,
+        0
+      );
+      return { buffer, face };
+    });
+
     this.renderNoiseProgram = new ProgramBuilder(this.ctx)
       .withShader(commonVert)
       .withFragmentShader(RENDER_FRAG_NOISE)
       .bindAttribLocation(QUAD_ATTRIB_LOCATION, 'v')
+      .link();
+
+    this.renderSkyboxProgram = new ProgramBuilder(this.ctx)
+      .withVertexShader(RENDER_VERT_SKYBOX)
+      .withFragmentShader(RENDER_FRAG_SKYBOX)
+      .bindAttribLocation(QUAD_ATTRIB_LOCATION, 'v')
+      .withUniform3f('o')
+      .withUniform3f('dx')
+      .withUniform3f('dy')
+      .withUniform3f('sun')
       .link();
 
     this.renderLowResDepthProgram = new ProgramBuilder(this.ctx)
@@ -907,9 +979,12 @@ class Renderer {
       .withUniform1f('maxDrawDist')
       .withUniform2f('lowResSize')
       .withUniform3f('sun')
+      .withUniform3f('sunDiskCol')
+      .withUniform3f('skyAmbientCol')
       .withUniform1i('grid')
       .withUniform1i('isP3')
       .withUniform1i('lowResDepth')
+      .withUniform1i('skybox')
       .withUniform1i('noise')
       .withUniform1f('terrainHeight')
       .withUniform1f('terrainHeightAdjust')
@@ -951,14 +1026,28 @@ class Renderer {
     this.ctx.enableVertexAttribArray(QUAD_ATTRIB_LOCATION);
     this.ctx.vertexAttribPointer(QUAD_ATTRIB_LOCATION, 2, GL.FLOAT, false, 0, 0);
 
-    this.renderNoise();
+    this._renderNoise();
   }
 
-  renderNoise() {
+  _renderNoise() {
     this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, this.renderNoiseBuffer);
     this.ctx.viewport(0, 0, NOISE_SIZE, NOISE_SIZE);
     this.renderNoiseProgram.use();
     this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
+  }
+
+  _renderSky(sun) {
+    this.ctx.viewport(0, 0, SKY_SIZE, SKY_SIZE);
+    for (const { buffer, face } of this.skybox) {
+      this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, buffer);
+      this.renderSkyboxProgram.use({
+        o: xyzTo3f(face.o),
+        dx: xyzTo3f(face.dx),
+        dy: xyzTo3f(face.dy),
+        sun: xyzTo3f(norm3(sun)),
+      });
+      this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
+    }
   }
 
   render(config) {
@@ -988,6 +1077,10 @@ class Renderer {
     if (this.ctx.canvas.width !== w || this.ctx.canvas.height !== h) {
       this.ctx.canvas.width = w;
       this.ctx.canvas.height = h;
+    }
+
+    if (!deepEqual(config.sun, this.renderedConfig.sun)) {
+      this._renderSky(config.sun);
     }
 
     if (stereoscopic) {
@@ -1074,10 +1167,13 @@ class Renderer {
       maxDrawDist,
       lowResSize: [lowW, lowH],
       sun: xyzTo3f(norm3(config.sun)),
+      sunDiskCol: xyzTo3f(SUN_DISK_COL),
+      skyAmbientCol: xyzTo3f(calculateAmbientSky(norm3(config.sun))),
       grid: Boolean(config.grid),
       isP3: this.colorspace === 'display-p3',
       noise: { index: 0, texture: this.noiseTex },
       lowResDepth: { index: 1, texture: this.lowResDepthTex },
+      skybox: { index: 2, glEnum: GL.TEXTURE_CUBE_MAP, texture: this.skyboxTex },
       terrainHeight: config.terrainHeight,
       waterHeight: config.waterHeight,
       waterFog: Math.pow(10, -config.waterFog),
