@@ -210,3 +210,8 @@ function glslRandom(name, quality) {
     return vec2(v & 0xFFFFu) / 65535.0;
   }`;
 }
+
+function glslFloat(v) {
+  const s = String(v);
+  return s.includes('.') ? s : `${s}.0`;
+}

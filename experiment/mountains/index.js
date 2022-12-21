@@ -35,18 +35,24 @@ const FORM_CONFIG = [
     rows: [
       [
         { label: 'Height', key: 'waterHeight', type: 'number', min: 0, max: 3, def: 0.72 },
-        { label: 'Fog', key: 'waterFog', type: 'number', min: 0, max: 20, def: 7 },
+        { label: 'Fog', key: 'waterFog', type: 'number', min: 0, max: 20, def: 12 },
       ],
       [
-        { label: 'Ripple Zoom', key: 'ripple.zoom', type: 'number', min: 0, max: 400, def: 80 },
-        { label: 'Ripple Height', key: 'ripple.height', type: 'number', min: 0, max: 0.002, def: 0.0005 },
+        { label: 'Ripple Zoom', key: 'ripple.zoom', type: 'number', min: 0, max: 400, def: 250 },
+        { label: 'Ripple Height', key: 'ripple.height', type: 'number', min: 0, max: 0.002, def: 0.0002 },
         { label: 'Ripple Shift X', key: 'ripple.shift.x', type: 'number', min: -10, max: 10, def: 0 },
         { label: 'Ripple Shift Y', key: 'ripple.shift.y', type: 'number', min: -10, max: 10, def: 0 },
       ],
       [
-        { label: 'Wave Distance', key: 'wave.distance', type: 'number', min: 0.02, max: 1, def: 0.05 },
-        { label: 'Wave Height', key: 'wave.height', type: 'number', min: 0, max: 0.002, def: 0.001 },
-        { label: 'Wave Frequency', key: 'wave.frequency', type: 'number', min: 0, max: 1000, def: 200 },
+        { label: 'Ripple 2 Zoom', key: 'ripple2.zoom', type: 'number', min: 0, max: 20, def: 8 },
+        { label: 'Ripple 2 Height', key: 'ripple2.height', type: 'number', min: 0, max: 0.01, def: 0.003 },
+        { label: 'Ripple 2 Shift X', key: 'ripple2.shift.x', type: 'number', min: -10, max: 10, def: 0 },
+        { label: 'Ripple 2 Shift Y', key: 'ripple2.shift.y', type: 'number', min: -10, max: 10, def: 0 },
+      ],
+      [
+        { label: 'Wave Distance', key: 'wave.distance', type: 'number', min: 0.02, max: 1, def: 0.07 },
+        { label: 'Wave Height', key: 'wave.height', type: 'number', min: 0, max: 0.002, def: 0.0004 },
+        { label: 'Wave Frequency', key: 'wave.frequency', type: 'number', min: 0, max: 400, def: 70 },
         { label: 'Wave Phase', key: 'wave.phase', type: 'number', min: -10, max: 10, def: 0 },
       ],
     ],
