@@ -587,8 +587,6 @@ vec3 terrainColAt(vec2 p, vec3 ray, float shadow) {
   return c;
 }
 
-const float tuning = 0.15;
-
 void upscaleLowRes(vec3 ray, float far, out float d, out float dWaterAdjust, out float shadow, out float shadow2) {
   ivec2 lowpos = ivec2(lowResCoord);
   vec2 lowfract = fract(lowResCoord) - 0.5;
@@ -638,6 +636,7 @@ void upscaleLowRes(vec3 ray, float far, out float d, out float dWaterAdjust, out
     return;
   }
 
+  float tuning = max(d0 * 0.02, 0.01);
   d0 = raytune2(origin, ray, d0, tuning);
   if (elevationAt(origin + ray * (d0 + 0.01)) <= 0.0) { d = d0; }
   else {
@@ -774,7 +773,7 @@ vec3 render(vec3 ray) {
   vec3 rayRefract = refract(ray, waterNorm, ${glslFloat(nAir / nWater)});
   rayRefract.z = -abs(rayRefract.z); // don't allow waves to cause refraction to go upwards
   // difference between 'far' for low/high res means we need to tune here to avoid stripes
-  float dRefract = raytune2(waterOrigin, rayRefract, d - far, tuning);
+  float dRefract = raytune2(waterOrigin, rayRefract, d - far, 0.15);
   float refractionVis = pow(waterFog, dRefract);
   vec3 colRefract;
   if (refractionVis > 0.05) {
