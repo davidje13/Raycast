@@ -81,13 +81,12 @@ void main(void) {
 }`;
 
 function calculateAmbientSky(sun) {
-  const dAdjusted = 1 - sun.z;
-  const ambient = smoothstep(-0.9, 0, sun.z) * 0.95 + 0.95;
-  const directSun = smoothstep(-0.4, 0.4, sun.z);
+  const d = Math.max(0.8, 1 - sun.z);
+  const ambient = smoothstep(-0.9, 0, sun.z) * 0.05 + 0.01;
   return {
-    x: Math.pow(0.001, dAdjusted - 0.03) * 2.4 * ambient + SUN_DISK_COL.x * directSun,
-    y: Math.pow(0.400, dAdjusted - 0.02) * 2.2 * ambient + SUN_DISK_COL.y * directSun,
-    z: Math.pow(0.700, dAdjusted) * 2.0 * ambient + SUN_DISK_COL.z * directSun,
+    x: Math.pow(0.1, d) * 2.2 * ambient,
+    y: Math.pow(0.4, d) * 2.2 * ambient,
+    z: Math.pow(0.6, d) * 2.2 * ambient,
   };
 }
 
@@ -465,26 +464,17 @@ out vec4 col;
 ${HELPER_FNS}
 ${TERRAIN_FNS}
 
-vec3 rawSkybox(vec3 ray) {
-  return texture(skybox, rayToSkybox(ray)).xyz;
-}
-
 vec3 sky(vec3 ray) {
   float d = dot(ray, sun) > 0.0 ? length(cross(ray, sun)) : 1.0;
-  return rawSkybox(ray) + sunDiskCol * smoothstep(0.024, 0.016, d);
+  return texture(skybox, rayToSkybox(ray)).xyz + sunDiskCol * smoothstep(0.024, 0.016, d);
 }
 
 vec3 skyFog(vec3 c, vec3 ray, float d) {
-  float m = 1.0;
-  if (ray.z < 0.0) {
-    m = max(1.0 + ray.z * 3.0, 0.0);
-    ray.z = 0.0;
-  }
-  return mix(rawSkybox(ray) * m, c, pow(atmosphere, d));
-}
-
-vec3 skyDiffuse(vec3 norm) {
-  return rawSkybox(norm) + sunDiskCol * max(dot(sun, norm), 0.0);
+  return mix(
+    texture(skybox, rayToSkybox(vec3(ray.xy, 1.0 / (d + 500.0)))).xyz * min(d * 0.08, 1.0),
+    c,
+    pow(atmosphere, d)
+  );
 }
 
 vec3 terrainColAt(vec2 p, vec3 ray, float shadow) {
@@ -492,6 +482,13 @@ vec3 terrainColAt(vec2 p, vec3 ray, float shadow) {
   vec3 norm = normalize(vec3(-terrain.xy, 1.0));
   float grad2 = dot(terrain.xy, terrain.xy);
   float heightAboveWater = terrain.z - waterHeight;
+  float sunDotNorm = dot(sun, norm);
+
+  if (sunDotNorm <= 0.0) {
+    shadow = 0.0;
+  } else if (shadow == -1.0) {
+    shadow = shadowtrace(vec3(p, terrain.z), sun);
+  }
 
   // lighting
   vec3 reflectRay = reflect(ray, norm);
@@ -499,75 +496,65 @@ vec3 terrainColAt(vec2 p, vec3 ray, float shadow) {
   float glossDot2 = glossDot1 * glossDot1;
   float glossDot4 = glossDot2 * glossDot2;
   float glossDot8 = glossDot4 * glossDot4;
-  vec3 reflectCol = sunDiskCol;
-  vec3 diffuseCol = skyDiffuse(norm);
-  float innerScatter = dot(sun, norm) * 0.5 + 0.5;
-  vec3 ambientCol = skyAmbientCol;
-  if (dot(sun, norm) <= 0.0) {
-    shadow = 0.0;
-  } else if (shadow == -1.0) {
-    shadow = shadowtrace(vec3(p, terrain.z), sun);
+  vec3 reflectCol = sunDiskCol * shadow * 0.04;
+  vec3 diffuseCol = (
+    + skyAmbientCol
+    + texture(skybox, rayToSkybox(norm)).xyz * (norm.z * 0.5 + 0.5)
+    + sunDiskCol * max(sunDotNorm, 0.0) * shadow
+  ) * 0.04;
+  vec3 scatterCol = sunDiskCol * max(sunDotNorm * 0.6 + 0.4, 0.0) * 0.04 * linearstep(-0.3, 0.1, sun.z);
+
+  // approx. water attenuation of incoming light
+  if (heightAboveWater < 0.0) {
+    reflectCol *= pow(waterFog, -heightAboveWater / max(sun.z * ${nWater / nAir}, 0.001));
+    diffuseCol *= pow(waterFog, -heightAboveWater);
   }
-  diffuseCol *= shadow * 0.8 + 0.2;
-  ambientCol *= shadow * 0.7 + 0.3;
-  reflectCol *= shadow;
 
   vec3 rock = (
-    + ambientCol * vec3(0.003, 0.003, 0.002) * 0.4
-    + diffuseCol * vec3(0.050, 0.040, 0.050) * 0.4
-    + reflectCol * vec3(0.030, 0.040, 0.040) * 0.4 * glossDot8
+    + diffuseCol * vec3(0.50, 0.40, 0.50)
+    + reflectCol * vec3(0.30, 0.40, 0.40) * glossDot8
   );
 
   vec3 dirt = (
-    + ambientCol * vec3(0.020, 0.008, 0.010) * 0.3
-    + diffuseCol * vec3(0.200, 0.080, 0.020) * 0.3
+    + diffuseCol * vec3(0.40, 0.12, 0.02)
   );
 
   vec3 grass = (
-    + ambientCol * vec3(0.001, 0.002, 0.000)
-    + diffuseCol * vec3(0.010, 0.030, 0.015)
+    + diffuseCol * vec3(0.15, 0.40, 0.07)
   );
 
   vec3 sand = (
-    + ambientCol * vec3(0.040, 0.030, 0.010)
-    + diffuseCol * vec3(0.030, 0.024, 0.012)
+    + diffuseCol * vec3(5.00, 4.00, 2.00)
   );
 
   vec3 wetSand = (
-    + sand * 0.6
-    + reflectCol * vec3(0.020, 0.015, 0.011) * glossDot2
-  );
-
-  vec3 sandmix = mix(
-    wetSand,
-    sand,
-    linearstep(-0.0005, 0.01, heightAboveWater - grad2 * 0.001)
+    + diffuseCol * vec3(0.50, 0.40, 0.20)
+    + reflectCol * vec3(0.75, 0.50, 0.40) * glossDot4
   );
 
   vec3 snow = (
-    + ambientCol * (vec3(0.060, 0.070, 0.075) + innerScatter * 0.2)
-    + diffuseCol * 0.150
-    + reflectCol * 0.100 * glossDot8
+    + diffuseCol * vec3(3.75, 3.75, 3.75)
+    + scatterCol * vec3(3.50, 3.70, 4.00)
+    + reflectCol * vec3(1.00, 1.00, 1.00) * glossDot1
   );
 
   vec3 c = mix(
     mix(
-      sandmix,
+      mix(
+        wetSand,
+        sand,
+        linearstep(-0.002, 0.008, heightAboveWater - grad2 * 0.001)
+      ),
       mix(
         grass,
         mix(dirt, rock, linearstep(0.1, 0.5, grad2)),
         linearstep(0.1, 0.3, grad2)
       ),
-      linearstep(0.009, 0.019, heightAboveWater + linearstep(0.05, 0.45, grad2) * 0.03)
+      linearstep(0.1, 0.15, sqrt(heightAboveWater) + linearstep(0.1, 0.45, grad2) * 0.1 + linearstep(0.4, 0.6, grad2) * 2.0)
     ),
     snow,
     linearstep(snowLow, snowHigh, terrain.z - grad2 * snowSlope)
   );
-
-  // approx. water attenuation of incoming light
-  if (heightAboveWater < 0.0) {
-    c *= pow(waterFog, -heightAboveWater);
-  }
 
   // grid
   if (grid) {
@@ -903,7 +890,7 @@ class Renderer {
       format: getFloatBufferFormats(this.ctx).rgba,
       size: SKY_SIZE,
     });
-    this.skybox = CUBE_MAP_FACES.map((face) => {
+    this.skybox = CUBE_MAP_FACES.filter((face) => face.o.z >= 0).map((face) => {
       const buffer = this.ctx.createFramebuffer();
       this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, buffer);
       this.ctx.framebufferTexture2D(
