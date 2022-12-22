@@ -11,6 +11,7 @@ const FORM_CONFIG = [
         { key: 'resolution', type: 'const', value: 0.5, fullValue: 1 },
         { label: 'Colorspace', key: 'colorspace', type: 'option', options: ['srgb', 'display-p3'], def: 'display-p3' },
         { label: 'Grid', key: 'grid', type: 'boolean', def: false },
+        { label: 'Profile', type: 'button', eventType: 'profile' },
       ],
     ],
   },
@@ -138,6 +139,17 @@ window.addEventListener('DOMContentLoaded', () => {
     }
     render(config);
   }, hashWatch.getJSON());
+
+  ui.addEventListener('profile', (e) => {
+    e.detail.button.innerText = 'Profiling\u2026';
+    setTimeout(() => {
+      const stats = profileGL(renderer.ctx, () => {
+        renderer.forceFullRender();
+        render(ui.get(true));
+      });
+      e.detail.button.innerText = `Best: ${stats.best}ms / Worst: ${stats.worst}ms / Avg: ${stats.average.toFixed(1)}ms`;
+    }, 0);
+  });
 
   document.body.appendChild(ui.form);
 

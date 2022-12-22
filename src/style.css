@@ -27,6 +27,10 @@ label {
   white-space: nowrap;
 }
 
+button {
+  vertical-align: 1px;
+}
+
 details {
   margin-top: 5px;
 }

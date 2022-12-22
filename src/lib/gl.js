@@ -206,6 +206,34 @@ function createEmptyCubeTexture(ctx, {
   return texture;
 }
 
+function realFinish(ctx) {
+  ctx.flush();
+  ctx.finish();
+  // Chrome behaviour: finish does not actually do what it is supposed to do
+  // (see https://bugs.chromium.org/p/chromium/issues/detail?id=242210),
+  // so we have to do something to force it to finish before measuring time:
+  ctx.readPixels(0, 0, 1, 1, GL.RGBA, GL.UNSIGNED_BYTE, new Uint8Array(4));
+}
+
+function profileGL(ctx, fn, { maxFrames = 20, maxTime = 2000 } = {}) {
+  const timeout = Date.now() + maxTime;
+  let best = Number.POSITIVE_INFINITY;
+  let worst = 0;
+  let total = 0;
+  let n = 0;
+  do {
+    const tm0 = Date.now();
+    fn();
+    realFinish(ctx);
+    const tm = Date.now() - tm0;
+    best = Math.min(best, tm);
+    worst = Math.max(worst, tm);
+    total += tm;
+    ++n;
+  } while (Date.now() < timeout && n < maxFrames);
+  return { best, worst, average: total / n, frames: n };
+}
+
 const CUBE_MAP_FACES = [
   {
     glEnum: GL.TEXTURE_CUBE_MAP_POSITIVE_X,

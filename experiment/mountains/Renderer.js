@@ -206,8 +206,7 @@ vec3 noiseAndGrad(vec2 pos) {
 #endif
 
   return vec3(
-    (p10 + p11 * m.y) * dm.x, // x grad
-    (p01 + p11 * m.x) * dm.y, // y grad
+    (vec2(p10, p01) + p11 * m.yx) * dm.xy, // x/y grad
     p00 + p10 * m.x + (p01 + p11 * m.x) * m.y - 0.5 // value
   );
 }
@@ -361,7 +360,7 @@ float shadowtrace(vec3 o, vec3 ray) {
     return 0.0;
   }
 
-  float maxGrad = terrainHeight;
+  float maxGrad = terrainHeight * 0.5; // allow missing some shadow casters in exchange for better performance
   float gradStep = 1.0 / (length(ray.xy) * maxGrad * 0.5 - (ray.z - shadowBlur));
 
   float step = clamp(((o.z - terrainHeight) / -ray.z) * 0.01, 0.1, 0.5);
@@ -1115,6 +1114,10 @@ class Renderer {
       });
       this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
     }
+  }
+
+  forceFullRender() {
+    this.renderedConfig = {};
   }
 
   render(config) {

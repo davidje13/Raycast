@@ -8,6 +8,16 @@ const INPUT_TYPES = {
       set: () => {},
     };
   },
+  'button': ({ label, eventType }, onInput, onChange, dispatchEvent) => {
+    const button = document.createElement('button');
+    button.setAttribute('type', 'button');
+    button.addEventListener('click', () => {
+      dispatchEvent(new CustomEvent(eventType, { detail: { button } }));
+    });
+    button.appendChild(document.createTextNode(label));
+
+    return { dom: button };
+  },
   'option': ({ label, options }, _, onChange) => {
     const select = document.createElement('select');
     const labels = options.map((o) => (typeof o === 'string' ? o : o.label));
@@ -70,8 +80,9 @@ const INPUT_TYPES = {
   },
 };
 
-class UI {
+class UI extends EventTarget {
   constructor(config, callback, initial) {
+    super();
     let tm = null;
     const configInput = () => {
       callback(false);
@@ -80,6 +91,7 @@ class UI {
       clearTimeout(tm);
       tm = setTimeout(() => callback(true), 0);
     };
+    const dispatchEvent = this.dispatchEvent.bind(this);
 
     this.inputs = [];
     this.form = document.createElement('form');
@@ -95,17 +107,20 @@ class UI {
             typeConfig,
             configInput,
             configChange,
+            dispatchEvent,
           );
           if (dom) {
             fs.appendChild(dom);
             fs.appendChild(document.createTextNode(' '));
           }
-          this.inputs.push({
-            key: key.split('.'),
-            get,
-            set,
-            def: mapDefault?.(def) ?? def,
-          });
+          if (set || get) {
+            this.inputs.push({
+              key: key.split('.'),
+              get,
+              set,
+              def: mapDefault?.(def) ?? def,
+            });
+          }
         }
         fs.appendChild(document.createElement('br'));
       }
