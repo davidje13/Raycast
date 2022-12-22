@@ -64,13 +64,14 @@ ${HELPER_FNS}
 
 void main(void) {
   vec3 ray = skyboxToRay(p);
+  ray.z = max(0.0, ray.z);
   float d = length(cross(ray, sun));
   if (dot(ray, sun) < 0.0) {
     d = 2.0 - d;
   }
 
   float dAdjusted = d - pow((1.0 - ray.z) * 0.96, 50.0);
-  float thin = sqrt(max(0.0, ray.z));
+  float thin = sqrt(ray.z);
   vec3 c = vec3(
     pow(0.001, dAdjusted - 0.03) * (2.4 - thin * 2.2),
     pow(0.400, dAdjusted - 0.02) * (2.2 - thin * 1.5),
@@ -78,6 +79,40 @@ void main(void) {
   ) * (smoothstep(-0.9, 0.0, sun.z) * 0.95 + 0.05);
 
   col = vec4(c, 1.0);
+}`;
+
+// spooky sky:
+//  col = vec4(cos(ray * 20.0) + 1.0, 1.0);
+//  BLUR_SAMPLES = evenSphericalPoints(500, Math.PI * 0.1);
+//  vec3 ray = skyboxToRay(p);
+//  vec3 x = cross(vec3(0.0, 0.0, 1.0), ray);
+//  mat3 rot = mat3(x, cross(ray, x), ray);
+//  r = ${glslVec3(xyzTo3f(pt))} * rot;
+//  and use diffuseSkyboxTex as skybox
+
+const BLUR_SAMPLES = evenSphericalPoints(200, Math.PI * 0.5);
+
+const RENDER_FRAG_DIFFUSE_SKYBOX = `#version 300 es
+precision mediump float;
+
+uniform samplerCube skybox;
+in vec3 p;
+out vec4 col;
+
+${HELPER_FNS}
+
+void main(void) {
+  vec3 ray = skyboxToRay(p);
+  vec3 x = normalize(cross(vec3(0.0, 0.0, 1.0), ray));
+  mat3 rot = mat3(x, cross(ray, x), ray);
+
+  vec3 r;
+  vec4 agg = vec4(0.0);
+  ${BLUR_SAMPLES.map((pt) => `
+  r = rot * ${glslVec3(xyzTo3f(pt))};
+  agg += texture(skybox, rayToSkybox(r)) * smoothstep(0.0, 0.1, r.z);
+  `).join('')}
+  col = agg * (1.0 / ${glslFloat(BLUR_SAMPLES.length)});
 }`;
 
 function calculateAmbientSky(sun) {
@@ -443,6 +478,7 @@ precision mediump float;
 
 uniform sampler2D lowResDepth;
 uniform samplerCube skybox;
+uniform samplerCube diffuseSkybox;
 uniform vec3 origin;
 uniform mat3 view;
 uniform float waterHeight;
@@ -499,7 +535,7 @@ vec3 terrainColAt(vec2 p, vec3 ray, float shadow) {
   vec3 reflectCol = sunDiskCol * shadow * 0.04;
   vec3 diffuseCol = (
     + skyAmbientCol
-    + texture(skybox, rayToSkybox(norm)).xyz * (norm.z * 0.5 + 0.5)
+    + texture(diffuseSkybox, rayToSkybox(norm)).xyz
     + sunDiskCol * max(sunDotNorm, 0.0) * shadow
   ) * 0.04;
   vec3 scatterCol = sunDiskCol * max(sunDotNorm * 0.6 + 0.4, 0.0) * 0.04 * linearstep(-0.3, 0.1, sun.z);
@@ -903,6 +939,25 @@ class Renderer {
       return { buffer, face };
     });
 
+    this.diffuseSkyboxTex = createEmptyCubeTexture(this.ctx, {
+      mag: GL.LINEAR,
+      min: GL.LINEAR,
+      format: getFloatBufferFormats(this.ctx).rgba,
+      size: SKY_SIZE,
+    });
+    this.diffuseSkybox = CUBE_MAP_FACES.filter((face) => face.o.z >= 0).map((face) => {
+      const buffer = this.ctx.createFramebuffer();
+      this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, buffer);
+      this.ctx.framebufferTexture2D(
+        GL.DRAW_FRAMEBUFFER,
+        GL.COLOR_ATTACHMENT0,
+        face.glEnum,
+        this.diffuseSkyboxTex,
+        0
+      );
+      return { buffer, face };
+    });
+
     this.renderNoiseProgram = new ProgramBuilder(this.ctx)
       .withShader(commonVert)
       .withFragmentShader(RENDER_FRAG_NOISE)
@@ -917,6 +972,16 @@ class Renderer {
       .withUniform3f('dx')
       .withUniform3f('dy')
       .withUniform3f('sun')
+      .link();
+
+    this.renderDiffuseSkyboxProgram = new ProgramBuilder(this.ctx)
+      .withVertexShader(RENDER_VERT_SKYBOX)
+      .withFragmentShader(RENDER_FRAG_DIFFUSE_SKYBOX)
+      .bindAttribLocation(QUAD_ATTRIB_LOCATION, 'v')
+      .withUniform3f('o')
+      .withUniform3f('dx')
+      .withUniform3f('dy')
+      .withUniform1i('skybox')
       .link();
 
     this.renderLowResDepthProgram = new ProgramBuilder(this.ctx)
@@ -971,6 +1036,7 @@ class Renderer {
       .withUniform1i('isP3')
       .withUniform1i('lowResDepth')
       .withUniform1i('skybox')
+      .withUniform1i('diffuseSkybox')
       .withUniform1i('noise')
       .withUniform1f('terrainHeight')
       .withUniform1f('terrainHeightAdjust')
@@ -1024,13 +1090,28 @@ class Renderer {
 
   _renderSky(sun) {
     this.ctx.viewport(0, 0, SKY_SIZE, SKY_SIZE);
+    this.renderSkyboxProgram.use({
+      sun: xyzTo3f(norm3(sun)),
+    });
     for (const { buffer, face } of this.skybox) {
       this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, buffer);
-      this.renderSkyboxProgram.use({
+      this.renderSkyboxProgram.set({
         o: xyzTo3f(face.o),
         dx: xyzTo3f(face.dx),
         dy: xyzTo3f(face.dy),
-        sun: xyzTo3f(norm3(sun)),
+      });
+      this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
+    }
+
+    this.renderDiffuseSkyboxProgram.use({
+      skybox: { index: 1, glEnum: GL.TEXTURE_CUBE_MAP, texture: this.skyboxTex },
+    });
+    for (const { buffer, face } of this.diffuseSkybox) {
+      this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, buffer);
+      this.renderDiffuseSkyboxProgram.set({
+        o: xyzTo3f(face.o),
+        dx: xyzTo3f(face.dx),
+        dy: xyzTo3f(face.dy),
       });
       this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
     }
@@ -1160,6 +1241,7 @@ class Renderer {
       noise: { index: 0, texture: this.noiseTex },
       lowResDepth: { index: 1, texture: this.lowResDepthTex },
       skybox: { index: 2, glEnum: GL.TEXTURE_CUBE_MAP, texture: this.skyboxTex },
+      diffuseSkybox: { index: 3, glEnum: GL.TEXTURE_CUBE_MAP, texture: this.diffuseSkyboxTex },
       terrainHeight: config.terrainHeight,
       waterHeight: config.waterHeight,
       waterFog: Math.pow(10, -config.waterFog),

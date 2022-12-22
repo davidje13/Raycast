@@ -1,5 +1,7 @@
 'use strict';
 
+const IDENT_MAT3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+
 const xyzTo3f = (v) => [v.x, v.y, v.z];
 
 const sub3 = (v1, v2) => ({
@@ -8,8 +10,10 @@ const sub3 = (v1, v2) => ({
   z: v1.z - v2.z,
 });
 
+const length3 = (v) => Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+
 const norm3 = (v) => {
-  const s = 1 / Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+  const s = 1 / length3(v);
   return {
     x: v.x * s,
     y: v.y * s,
@@ -22,6 +26,27 @@ const cross3 = (v1, v2) => ({
   y: v1.z * v2.x - v1.x * v2.z,
   z: v1.x * v2.y - v1.y * v2.x,
 });
+
+const dot3 = (v1, v2) => (v1.x * v2.x + v1.y * v2.y + v1.z * v2.z);
+
+const matSum = (...ms) => ms.reduce((m1, m2) => m1.map((v, i) => v + m2[i]));
+
+const matScale = (m, s) => m.map((v) => v * s);
+
+const matMul = (size, m1, m2) => {
+  const r = [];
+  for (let i = 0; i < size; ++i) {
+    for (let j = 0; j < size; ++j) {
+      let v = 0;
+      for (let k = 0; k < size; ++k) {
+        v += m1[i * size + k] * m2[k * size + j];
+      }
+      r.push(v);
+    }
+  }
+  return r;
+};
+const mat3mul = matMul.bind(null, 3);
 
 const mat4xyz = (m) => [
   m[0], m[1], m[2],
@@ -40,6 +65,25 @@ function makeViewMatrix(eye, target, up) {
     z.x, z.y, z.z, 0,
     eye.x, eye.y, eye.z, 1,
   ];
+}
+
+function skewSymetricCrossProductMatrix(v) {
+  return [
+    0, -v.z, v.y,
+    v.z, 0, -v.x,
+    -v.y, v.x, 0,
+  ];
+}
+
+function makeRotationMatrix(v1, v2) {
+  // thanks, https://math.stackexchange.com/a/476311
+  const scale = 1 + dot3(v1, v2);
+  if (scale < 1e-6) {
+    return [-1, 0, 0, 0, -1, 0, 0, 0, -1];
+  }
+  const ssm = skewSymetricCrossProductMatrix(cross3(v1, v2));
+
+  return matSum(IDENT_MAT3, ssm, matScale(mat3mul(ssm, ssm), 1 / scale));
 }
 
 function mix(a, b, v) {
@@ -194,4 +238,25 @@ function velocityBezier(v0, v1, vmid) {
     bezier: new CubicBezier(0, v0 * s / 3, 1 - v1 * s / 3, 1),
     scale: s,
   };
+}
+
+function evenSphericalPoints(n, maxPhi = Math.PI * 2) {
+  // thanks, https://extremelearning.com.au/how-to-evenly-distribute-points-on-a-sphere-more-effectively-than-the-canonical-fibonacci-lattice/
+  // (basic Fibonacci lattice projected to sphere used here, no modifications)
+  // spiral from [0, 0, 1]
+  const points = [];
+  const GR = (1 + Math.sqrt(5)) / 2;
+  for (let i = 0; i < n; ++i) {
+    const theta = Math.PI * 2 * i / GR;
+    const phi = Math.acos(1 - (i * 2 + 1) / n);
+    if (phi > maxPhi) {
+      break;
+    }
+    const sinPhi = Math.sin(phi);
+    points.push({ x: Math.cos(theta) * sinPhi, y: Math.sin(theta) * sinPhi, z: Math.cos(phi) });
+  }
+  if (!points.length) {
+    points.push({ x: 0, y: 0, z: 1 });
+  }
+  return points;
 }

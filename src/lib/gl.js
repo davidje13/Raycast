@@ -268,3 +268,15 @@ function glslFloat(v) {
   const s = String(v);
   return s.includes('.') ? s : `${s}.0`;
 }
+
+function glslFloatList(vs) {
+  return vs.map(glslFloat).join(',');
+}
+
+function glslVec3(vs) {
+  return `vec3(${glslFloatList(vs)})`;
+}
+
+function glslMat3(vs) {
+  return `mat3(${glslFloatList(vs)})`;
+}
