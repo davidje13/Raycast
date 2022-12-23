@@ -803,7 +803,7 @@ vec3 render(vec3 ray) {
 }
 
 vec3 convertToDisplayColourSpace(vec3 c) {
-  c *= 0.5;
+  c *= 0.6;
   if (isP3) {
     c = pow(c, vec3(1.0 / 2.2));
   } else {
