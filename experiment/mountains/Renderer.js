@@ -35,7 +35,7 @@ out vec2 lowResCoord;
 
 void main(void) {
   pfov = v * fov;
-  lowResCoord = (v * 0.5 + 0.5) * lowResSize;
+  lowResCoord = (v * 0.5 + 0.5) * lowResSize + 1.0;
   gl_Position = vec4(v, 0.0, 1.0);
 }`;
 
@@ -215,19 +215,18 @@ ${[9, 15].map((count) => `
 vec3 terrainAndGrad${count}(vec2 pos) {
   vec3 sumLarge = vec3(0.0, 0.0, 0.5 * 3.0);
   vec2 p = pos * perlinLargeZoom;
-  mat2 rot = mat2(1.0, 0.0, 0.0, 1.0) * perlinLargeZoom;
+  mat2 rot = mat2(perlinLargeZoom, 0.0, 0.0, perlinLargeZoom);
   for (int i = 0; i < 3; i++) {
     vec3 v = noiseAndGrad(p);
     sumLarge += vec3(v.xy * rot, v.z);
     p = p * ROT_1_3 + PERLIN_OFFSET;
     rot *= ROT_1_3;
   }
-  sumLarge *= (1.0 / 3.0);
 
   vec3 sum = vec3(0.0, 0.0, 0.5);
   float m = PERLIN_NORM;
   p = pos * perlinZoom;
-  rot = mat2(1.0, 0.0, 0.0, 1.0) * perlinZoom;
+  rot = mat2(perlinZoom, 0.0, 0.0, perlinZoom);
   for (int i = 0; i < ${count}; i++) {
     vec3 v = noiseAndGrad(p);
     sum += vec3(v.xy * rot, v.z) * m;
@@ -243,7 +242,7 @@ vec3 terrainAndGrad${count}(vec2 pos) {
   float gammaAdjustedM1 = pow(sum.z, perlinGamma - 1.0);
   return (
     vec3(sum.xy * perlinGamma, sum.z) * gammaAdjustedM1 +
-    sumLarge * perlinLargeHeight
+    sumLarge * (1.0 / 3.0) * perlinLargeHeight
   ) * terrainHeightAdjust;
 }
 `).join('')}
@@ -327,29 +326,24 @@ float raytrace(vec3 o, vec3 ray, float near, float far, float dm) {
   float maxGrad = terrainHeight;
   float gradStep = 1.0 / max(length(ray.xy) * maxGrad * 0.5 - ray.z, 0.001);
 
-  vec3 p = o + near * ray;
-  float g = elevationAt(p);
+  float g = elevationAt(o + near * ray);
   if (g < 0.0) {
     return near;
   }
 
-  const float shift = 0.1;
-  near += shift;
-  far += shift;
   float d = near + g * gradStep * sharpNoise(ray).y;
 
-  for (int i = 0; i < 300; ++i) {
+  for (int i = 0; i < 250; ++i) {
     d = min(d, far);
-    p = o + (d - shift) * ray;
-    g = elevationAt(p);
+    g = elevationAt(o + d * ray);
     if (g < 0.0) {
-      return raytune2(o, ray, (near + d) * 0.5 - shift, (d - near) * 0.5);
+      return raytune2(o, ray, (d + near) * 0.5, (d - near) * 0.5);
     }
     if (d >= far) {
       return inf;
     }
     near = d;
-    d = max(d * dm, d + g * gradStep);
+    d = max((d + 0.1) * dm - 0.1, d + g * gradStep);
   }
   return inf;
 }
@@ -365,11 +359,11 @@ float shadowtrace(vec3 o, vec3 ray) {
 
   float step = clamp(((o.z - terrainHeight) / -ray.z) * 0.01, 0.1, 0.5);
   float d = step * (sharpNoise(o).y * 0.5 + 0.01);
-  for (int i = 0; i < 30; ++i) {
+  for (int i = 0; i < 20; ++i) {
     float range = shadowBlur * d;
     vec3 p = o + d * ray;
     if (range * 0.1 > terrainHeight || p.z - range > terrainHeight) {
-      break;
+      return vis * 0.5 + 0.5;
     }
     float g = elevationAt(p);
     vis = min(vis, g / range);
@@ -610,38 +604,22 @@ vec3 terrainColAt(vec2 p, vec3 ray, float shadow) {
 }
 
 void upscaleLowRes(vec3 ray, float far, out float d, out float dWaterAdjust, out float shadow, out float shadow2) {
-  ivec2 lowpos = ivec2(lowResCoord);
   vec2 lowfract = fract(lowResCoord) - 0.5;
-  ivec2 lowshift = ivec2(step(0.0, lowfract) * 2.0 - 1.0);
-  if (lowpos.x == 0 && lowshift.x == -1) {
-    lowshift.x = 0;
-  }
-  if (lowpos.y == 0 && lowshift.y == -1) {
-    lowshift.y = 0;
-  }
-  vec4 lowres00 = texelFetch(lowResDepth, lowpos, 0);
-  vec4 lowres10 = texelFetch(lowResDepth, lowpos + ivec2(lowshift.x, 0), 0);
-  vec4 lowres01 = texelFetch(lowResDepth, lowpos + ivec2(0, lowshift.y), 0);
-  vec4 lowres11 = texelFetch(lowResDepth, lowpos + lowshift, 0);
+  ivec2 lowpos1 = ivec2(lowResCoord);
+  ivec2 lowpos2 = ivec2(lowResCoord + step(0.0, lowfract) * 2.0 - 1.0);
+  vec4 lowres00 = texelFetch(lowResDepth, lowpos1, 0);
+  vec4 lowres10 = texelFetch(lowResDepth, ivec2(lowpos2.x, lowpos1.y), 0);
+  vec4 lowres01 = texelFetch(lowResDepth, ivec2(lowpos1.x, lowpos2.y), 0);
+  vec4 lowres11 = texelFetch(lowResDepth, lowpos2, 0);
 
-  if (lowres00.x == 0.0) {
-    d = 0.0;
-    dWaterAdjust = 0.0;
-    shadow = 0.0;
-    shadow2 = 0.0;
-    return;
+  vec4 ds = vec4(lowres00.x, lowres01.x, lowres10.x, lowres11.x);
+  if (ds.y < ds.x) { ds.xy = ds.yx; }
+  if (ds.w < ds.z) { ds.zw = ds.wz; }
+  if (ds.z < ds.y) {
+    ds.yz = ds.zy;
+    if (ds.y < ds.x) { ds.xy = ds.yx; }
+    if (ds.w < ds.z) { ds.zw = ds.wz; }
   }
-
-  float d0 = lowres00.x;
-  float d1 = lowres01.x;
-  float d2 = lowres10.x;
-  float d3 = lowres11.x;
-  if (d1 < d0) { float t = d0; d0 = d1; d1 = t; }
-  if (d2 < d1) { float t = d1; d1 = d2; d2 = t; }
-  if (d1 < d0) { float t = d0; d0 = d1; d1 = t; }
-  if (d3 < d2) { float t = d2; d2 = d3; d3 = t; }
-  if (d2 < d1) { float t = d1; d1 = d2; d2 = t; }
-  if (d1 < d0) { float t = d0; d0 = d1; d1 = t; }
 
   lowfract = abs(lowfract);
   float m00 = (1.0 - lowfract.x) * (1.0 - lowfract.y);
@@ -649,27 +627,29 @@ void upscaleLowRes(vec3 ray, float far, out float d, out float dWaterAdjust, out
   float m10 = lowfract.x * (1.0 - lowfract.y);
   float m11 = lowfract.x * lowfract.y;
 
-  if (d0 > far) {
+  if (ds.x > far) {
     vec4 i = lowres00 * m00 + lowres01 * m01 + lowres10 * m10 + lowres11 * m11;
     d = i.x;
     dWaterAdjust = i.y;
     shadow = i.z;
     shadow2 = i.w;
     return;
+  } else if (ds.w <= 0.0) {
+    d = 0.0;
+    return;
   }
 
-  float tuning = max(d0 * 0.02, 0.01);
-  d0 = raytune2(origin, ray, d0, tuning);
-  if (elevationAt(origin + ray * (d0 + 0.01)) <= 0.0) { d = d0; }
+  float tuning = max(ds.x * 0.02, 0.01);
+  ds.x = raytune2(origin, ray, ds.x, tuning);
+  if (elevationAt(origin + ray * (ds.x + 0.01)) <= 0.0) { d = ds.x; }
   else {
-    if (d1 < d0 + 0.01) {
-      d1 = d2;
-      d2 = d3;
+    if (ds.y < ds.x + 0.01) {
+      ds.yz = ds.zw;
     }
-    d1 = raytune2(origin, ray, d1, tuning);
-    if (elevationAt(origin + ray * (d1 + 0.02)) <= 0.0) { d = d1; }
-    else if (elevationAt(origin + ray * (d2 + 0.05)) <= 0.0) { d = d2; }
-    else { d = d3; }
+    ds.y = raytune2(origin, ray, ds.y, tuning);
+    if (elevationAt(origin + ray * (ds.y + 0.01)) <= 0.0) { d = ds.y; }
+    else if (elevationAt(origin + ray * (ds.z + 0.01)) <= 0.0) { d = ds.z; }
+    else { d = ds.w; }
   }
 
   dWaterAdjust = lowres00.y * m00 + lowres01.y * m01 + lowres10.y * m10 + lowres11.y * m11;
@@ -679,25 +659,21 @@ void upscaleLowRes(vec3 ray, float far, out float d, out float dWaterAdjust, out
   m11 = linearstep(0.5, 0.0, abs(lowres11.x - d)) + m11 * 0.0001;
   float mt = m00 + m01 + m10 + m11;
 
-  vec2 i;
-  if (mt < 0.2) {
-    i = (lowres00.zw * m00 + lowres01.zw * m01 + lowres10.zw * m10 + lowres11.zw * m11) / mt;
-  } else if (m00 > 0.999) {
-    i = lowres00.zw;
-  } else if (m01 > 0.999) {
-    i = lowres01.zw;
-  } else if (m10 > 0.999) {
-    i = lowres10.zw;
-  } else if (m11 > 0.999) {
-    i = lowres11.zw;
-  } else {
-    i = vec2(-1.0); // calculate for this pixel when needed
-    if (min(min(lowres00.z, lowres01.z), min(lowres10.z, lowres11.z)) > 0.99) {
-      i.x = 1.0;
-    }
-  }
-  shadow = i.x;
+  vec2 i = (lowres00.zw * m00 + lowres01.zw * m01 + lowres10.zw * m10 + lowres11.zw * m11) / mt;
   shadow2 = i.y;
+  if (mt < 3.5 || lowres00.z * lowres01.z * lowres10.z * lowres11.z > 0.0) {
+    shadow = i.x;
+  } else if (m00 > 0.997) {
+    shadow = lowres00.z;
+  } else if (m01 > 0.997) {
+    shadow = lowres01.z;
+  } else if (m10 > 0.997) {
+    shadow = lowres10.z;
+  } else if (m11 > 0.997) {
+    shadow = lowres11.z;
+  } else {
+    shadow = -1.0; // calculate for this pixel when needed
+  }
 }
 
 vec3 render(vec3 ray) {
@@ -715,7 +691,7 @@ vec3 render(vec3 ray) {
   float shadow2;
   upscaleLowRes(ray, far, d, dWaterAdjust, shadow, shadow2);
 
-  if (d == 0.0) {
+  if (d <= 0.0) {
     return vec3(0.15, 0.1, 0.05);
   }
 
@@ -906,8 +882,8 @@ class Renderer {
       mag: GL.NEAREST,
       min: GL.NEAREST,
       format: getFloatBufferFormats(this.ctx).rgba,
-      width: this.width / DOWNSCALE,
-      height: this.height / DOWNSCALE,
+      width: this.width / DOWNSCALE + 2,
+      height: this.height / DOWNSCALE + 2,
     });
     this.lowResDepthBuffer = this.ctx.createFramebuffer();
     this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, this.lowResDepthBuffer);
@@ -1193,11 +1169,11 @@ class Renderer {
     const lowW = viewport[2] / DOWNSCALE;
     const lowH = viewport[3] / DOWNSCALE;
     this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, this.lowResDepthBuffer);
-    this.ctx.viewport(0, 0, lowW, lowH);
+    this.ctx.viewport(0, 0, lowW + 2, lowH + 2);
     this.renderLowResDepthProgram.use({
       origin: xyzTo3f(origin),
       view: [false, mat4xyz(view)],
-      fov: [fovx, fovy],
+      fov: [fovx * (lowW + 2) / lowW, fovy * (lowH + 2) / lowH],
       maxDrawDist,
       sun: xyzTo3f(norm3(config.sun)),
       noise: { index: 0, texture: this.noiseTex },
