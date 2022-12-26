@@ -12,6 +12,7 @@ const FORM_CONFIG = [
         { label: 'Colorspace', key: 'colorspace', type: 'option', options: ['srgb', 'display-p3'], def: 'display-p3' },
         { label: 'Grid', key: 'grid', type: 'boolean', def: false },
         { label: 'Profile', type: 'button', eventType: 'profile' },
+        { label: 'Play', type: 'button', eventType: 'play' },
       ],
     ],
   },
@@ -140,7 +141,10 @@ window.addEventListener('DOMContentLoaded', () => {
     render(config);
   }, hashWatch.getJSON());
 
+  let playing = false;
+  let playPrevTime = 0;
   ui.addEventListener('profile', (e) => {
+    playing = false;
     e.detail.button.innerText = 'Profiling\u2026';
     setTimeout(() => {
       const stats = profileGL(renderer.ctx, () => {
@@ -150,6 +154,25 @@ window.addEventListener('DOMContentLoaded', () => {
       e.detail.button.innerText = `Best: ${stats.best}ms / Worst: ${stats.worst}ms / Avg: ${stats.average.toFixed(1)}ms`;
     }, 0);
   });
+
+  ui.addEventListener('play', (e) => {
+    playing = !playing;
+    playPrevTime = Date.now();
+    e.detail.button.innerText = playing ? 'Stop' : 'Play';
+    window.requestAnimationFrame(playFrame);
+  });
+
+  function playFrame() {
+    if (!playing) {
+      return;
+    }
+    realFinish(renderer.ctx); // wait for previous frame to avoid building up a large render queue on the GPU
+    const now = Date.now();
+    renderer.step((now - playPrevTime) * 0.001);
+    playPrevTime = now;
+    renderer.render();
+    window.requestAnimationFrame(playFrame);
+  }
 
   document.body.appendChild(ui.form);
 

@@ -207,7 +207,6 @@ function createEmptyCubeTexture(ctx, {
 }
 
 function realFinish(ctx) {
-  ctx.flush();
   ctx.finish();
   // Chrome behaviour: finish does not actually do what it is supposed to do
   // (see https://bugs.chromium.org/p/chromium/issues/detail?id=242210),
@@ -216,6 +215,7 @@ function realFinish(ctx) {
 }
 
 function profileGL(ctx, fn, { maxFrames = 20, maxTime = 2000 } = {}) {
+  realFinish(renderer.ctx); // wait for any existing operations to complete to avoid interference
   const timeout = Date.now() + maxTime;
   let best = Number.POSITIVE_INFINITY;
   let worst = 0;
@@ -224,6 +224,7 @@ function profileGL(ctx, fn, { maxFrames = 20, maxTime = 2000 } = {}) {
   do {
     const tm0 = Date.now();
     fn();
+    ctx.flush();
     realFinish(ctx);
     const tm = Date.now() - tm0;
     best = Math.min(best, tm);

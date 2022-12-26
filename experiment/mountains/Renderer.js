@@ -2,6 +2,7 @@
 
 const NOISE_SIZE = 1024;
 const SKY_SIZE = 64;
+const GRID_SIZE = 1024;
 const DOWNSCALE = 6;
 const SKY_HORIZON_FOCUS = 4.0;
 
@@ -140,6 +141,7 @@ const TERRAIN_FNS = `
 #define SMOOTHNESS 2
 
 uniform sampler2D noise;
+uniform sampler2D water;
 uniform float maxDrawDist;
 uniform float perlinZoom;
 uniform float perlinFlatCliffs;
@@ -149,6 +151,9 @@ uniform float perlinLargeZoom;
 uniform float perlinLargeHeight;
 uniform float terrainHeight;
 uniform float terrainHeightAdjust; // terrainHeight / (1.0 + perlinLargeHeight)
+uniform float waterHeight;
+uniform vec2 waterO;
+uniform vec2 waterS;
 uniform float rippleZoom;
 uniform float rippleHeight;
 uniform vec2 rippleShift;
@@ -253,42 +258,59 @@ float elevationAt(vec3 pos) {
 
 vec4 waterAt(vec2 pos) {
   vec3 g = terrainAndGrad15(pos);
-  float depth = waterHeight - g.z;
-  vec3 ripple = vec3(0.0);
-  float rippleMult = (1.0 / 3.0) * rippleHeight * linearstep(0.002, 0.02, depth);
-  if (rippleMult > 0.0) {
-    vec2 p = pos * rippleZoom;
-    mat2 rot = mat2(1.0, 0.0, 0.0, 1.0) * rippleZoom;
-    for (int i = 0; i < 3; i++) {
-      vec3 v = noiseAndGrad(p + rippleShift);
-      ripple += vec3(v.xy * rot, v.z);
-      p = p * ROT_1_3 + PERLIN_OFFSET;
-      rot *= ROT_1_3;
-    }
-    ripple *= rippleMult;
-  }
-  vec3 ripple2 = vec3(0.0);
-  float ripple2Mult = (1.0 / 3.0) * ripple2Height * linearstep(0.01, 0.04, depth);
-  if (ripple2Mult > 0.0) {
-    vec2 p = pos * ripple2Zoom;
-    mat2 rot = mat2(1.0, 0.0, 0.0, 1.0) * ripple2Zoom;
-    for (int i = 0; i < 3; i++) {
-      vec3 v = noiseAndGrad(p + ripple2Shift);
-      ripple2 += vec3(v.xy * rot, v.z);
-      p = p * ROT_1_3 + PERLIN_OFFSET;
-      rot *= ROT_1_3;
-    }
-    ripple2 *= ripple2Mult;
-  }
-  vec3 wave = vec3(0.0);
-  float waveMult = waveHeight * linearstep(0.0, 0.02, depth) * linearstep(waveDist, 0.01, depth);
-  if (waveMult > 0.0) {
-    vec3 offset = noiseAndGrad(pos * 0.47) * 10.0;
-    float rtDepth = sqrt(depth);
-    float v = offset.z + rtDepth * waveFreq + wavePhase;
-    wave = vec3((offset.xy - g.xy * waveFreq * 0.5 / rtDepth) * cos(v), sin(v)) * waveMult;
-  }
-  return vec4(ripple + ripple2 + wave, depth);
+  vec2 p = (pos - waterO) * 0.5 / waterS + 0.5;
+  vec4 w = texture(water, p);
+  float h = w.x + w.z;
+  const float e = 0.01;
+  w = texture(water, p + vec2(e * 0.5 / waterS.x, 0.0));
+  float hx = w.x + w.z - h;
+  w = texture(water, p + vec2(0.0, e * 0.5 / waterS.y));
+  float hy = w.x + w.z - h;
+  return vec4(hx * (1.0 / e), hy * (1.0 / e), h - waterHeight, h - g.z);
+  //float depth = waterHeight - g.z;
+  //vec3 ripple = vec3(0.0);
+  //float rippleMult = (1.0 / 3.0) * rippleHeight * linearstep(0.002, 0.02, depth);
+  //if (rippleMult > 0.0) {
+  //  vec2 p = pos * rippleZoom;
+  //  mat2 dp = mat2(rippleZoom, 0.0, 0.0, rippleZoom);
+  //  for (int i = 0; i < 3; i++) {
+  //    vec3 v = noiseAndGrad(p + rippleShift);
+  //    ripple += vec3(v.xy * dp, v.z);
+  //    p = p * ROT_1_3 + PERLIN_OFFSET;
+  //    dp *= ROT_1_3;
+  //  }
+  //  ripple *= rippleMult;
+  //}
+  //vec3 ripple2 = vec3(0.0);
+  //float ripple2Mult = (1.0 / 3.0) * ripple2Height * linearstep(0.01, 0.04, depth);
+  //if (ripple2Mult > 0.0) {
+  //  vec2 p = pos * ripple2Zoom;
+  //  mat2 dp = mat2(ripple2Zoom, 0.0, 0.0, ripple2Zoom);
+  //  for (int i = 0; i < 3; i++) {
+  //    vec3 v = noiseAndGrad(p + ripple2Shift);
+  //    ripple2 += vec3(v.xy * dp, v.z);
+  //    p = p * ROT_1_3 + PERLIN_OFFSET;
+  //    dp *= ROT_1_3;
+  //    //vec3 g = noiseAndGrad(p * 0.5 + ripple2Shift.yx);
+  //    //p.x += sin(p.y) * (g.z + 0.6) * 1.5;
+  //    //dp[0] += (g.z + 0.6) * 1.5 * cos(p.y); // TODO
+  //    ////vec3 v = noiseAndGrad(p + ripple2Shift);
+  //    //vec3 v = vec3(3.14 * sin(p.x * 3.14 + ripple2Shift.x), 0.0, cos(p.x * 3.14 + ripple2Shift.x)) * 0.5;
+  //    //ripple2 += vec3(v.xy * dp, v.z);
+  //    //p = p * ROT_1_3 + PERLIN_OFFSET;
+  //    //dp *= ROT_1_3;
+  //  }
+  //  ripple2 *= ripple2Mult;
+  //}
+  //vec3 wave = vec3(0.0);
+  //float waveMult = waveHeight * linearstep(0.0, 0.02, depth) * linearstep(waveDist, 0.01, depth);
+  //if (waveMult > 0.0) {
+  //  vec3 offset = noiseAndGrad(pos * 0.47) * 10.0;
+  //  float rtDepth = sqrt(depth);
+  //  float v = offset.z + rtDepth * waveFreq + wavePhase;
+  //  wave = vec3((offset.xy - g.xy * waveFreq * 0.5 / rtDepth) * cos(v), sin(v)) * waveMult;
+  //}
+  //return vec4(ripple + ripple2 + wave, depth);
 }
 
 float raytraceWater(vec3 o, vec3 ray) {
@@ -380,12 +402,108 @@ const nAir = 1;
 const nWater = 4 / 3;
 const airWater = Math.pow(Math.abs(nAir - nWater) / (nAir + nWater), 2);
 
+const RENDER_VERT_GRID = `#version 300 es
+precision mediump float;
+
+uniform vec2 o;
+uniform vec2 s;
+in vec2 v;
+out vec2 pWorld;
+out vec2 p;
+
+void main(void) {
+  pWorld = v * s + o;
+  p = v * 0.5 + 0.5;
+  gl_Position = vec4(v, 0.0, 1.0);
+}`;
+
+const RENDER_FRAG_GRID = `#version 300 es
+precision mediump float;
+
+in vec2 pWorld;
+in vec2 p;
+out vec4 col;
+
+${HELPER_FNS}
+${TERRAIN_FNS}
+
+void main(void) {
+  col = vec4(terrainAndGrad9(pWorld), 0.0);
+}`;
+
+const RENDER_FRAG_GRID_UPDATE = `#version 300 es
+precision mediump float;
+
+uniform sampler2D grid;
+uniform sampler2D prev;
+uniform float time;
+uniform float dt;
+uniform float dampDt;
+
+in vec2 pWorld;
+in vec2 p;
+out vec4 next;
+
+${HELPER_FNS}
+${TERRAIN_FNS}
+
+void main(void) {
+  ivec2 c = ivec2(gl_FragCoord);
+  vec4 p1 = texelFetch(prev, c, 0);
+  vec4 t1 = texelFetch(grid, c, 0);
+  float h1 = p1.x + p1.z; // split into 2 components for precision
+
+  if (p1.w == 0.0) {
+    vec2 n = texture(noise, p * 0.1).xy;
+    n += texture(noise, p * ROT_1_3 * 0.2).xy;
+    n += texture(noise, p * ROT_1_3 * ROT_1_3 * 0.3).xy;
+    next = vec4((n.x - 0.5) * 0.005, 0.0, p1.z, 1.0);
+    return;
+  }
+
+  // GPE(point@h) = mass * g * height
+  // GPE(column height h) = 0.5*density*g*h^2
+
+  // KE = 0.5*m*v^2
+  // KE(column height h moving proportionally from base):
+  //   v = y*v/h
+  // KE = (density*y^3*v^2/h^2)/6 = (density*h*v^2)/6
+  // v = sqrt((KE*6)/density/h)
+
+  // KE + GPE = constant
+  // density cancels out
+  // *h^2/h cancels to *h
+  // *0.5*6 cancels to *3
+
+  const float g = 9.81 * 0.001; // grid squares ~= 1km
+  float f = 0.0;
+  vec4 p2;
+  float h2;
+  ivec2 c2;
+  ${[[-1, 0], [0, -1], [1, 0], [0, 1]].map((p) => `
+  c2 = c + ivec2(${glslFloatList(p)});
+  p2 = texelFetch(prev, c2, 0);
+  h2 = p2.x + p2.z;
+  f += (h2 - h1) * max(max(h2, h1) - max(t1.z, texelFetch(grid, c2, 0).z), 0.0);
+  `).join('')}
+
+  //vec2 n = texelFetch(noise, c, 0).xy;
+  //if (t1.z < waterHeight - 0.01 && n.x > 0.999) {
+  //  float s = n.y + 0.5;
+  //  float t = time * s + n.y * 100.0;
+  //  f += ((cos(t + dt) - cos(t)) * 0.1 - p1.x) * (h1 - t1.z);
+  //}
+
+  float ke = p1.y * dampDt + f * dt;
+  float v = sign(ke) * sqrt(abs(ke) * g * 3.0);
+  next = vec4(max(p1.x + v * dt, t1.z - p1.z - 0.01), ke, p1.z, 1.0);
+}`;
+
 const RENDER_FRAG_DEPTH = `#version 300 es
 precision mediump float;
 
 uniform vec3 origin;
 uniform mat3 view;
-uniform float waterHeight;
 uniform float snowLow;
 uniform float snowHigh;
 uniform float snowSlope;
@@ -474,7 +592,6 @@ uniform samplerCube skybox;
 uniform samplerCube diffuseSkybox;
 uniform vec3 origin;
 uniform mat3 view;
-uniform float waterHeight;
 uniform float waterFog;
 uniform float atmosphere;
 uniform float snowLow;
@@ -832,6 +949,7 @@ class Renderer {
     this.width = Math.ceil(width / DOWNSCALE) * DOWNSCALE;
     this.height = Math.ceil(height / DOWNSCALE) * DOWNSCALE;
     this.lastSetConfig = {};
+    this.time = 0;
 
     canvas.addEventListener('webglcontextlost', (e) => {
       e.preventDefault();
@@ -855,12 +973,13 @@ class Renderer {
 
   _init() {
     this.renderedConfig = {};
+    this.renderedTime = 0;
 
     const commonVert = { type: GL.VERTEX_SHADER, src: RENDER_VERT };
 
     this.noiseTex = createEmptyTexture(this.ctx, {
       wrap: GL.REPEAT,
-      mag: GL.NEAREST,
+      mag: GL.LINEAR,
       min: GL.NEAREST,
       format: GL.RGBA8,
       width: NOISE_SIZE,
@@ -894,6 +1013,45 @@ class Renderer {
       this.lowResDepthTex,
       0
     );
+
+    this.gridTex = createEmptyTexture(this.ctx, {
+      wrap: GL.CLAMP,
+      mag: GL.LINEAR,
+      min: GL.LINEAR,
+      format: getFloatBufferFormats(this.ctx).rgba,
+      width: GRID_SIZE,
+      height: GRID_SIZE,
+    });
+    this.gridBuffer = this.ctx.createFramebuffer();
+    this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, this.gridBuffer);
+    this.ctx.framebufferTexture2D(
+      GL.DRAW_FRAMEBUFFER,
+      GL.COLOR_ATTACHMENT0,
+      GL.TEXTURE_2D,
+      this.gridTex,
+      0
+    );
+
+    this.water = [0, 1].map(() => {
+      const tex = createEmptyTexture(this.ctx, {
+        wrap: GL.CLAMP,
+        mag: GL.LINEAR,
+        min: GL.LINEAR,
+        format: getFloatBufferFormats(this.ctx).rgba,
+        width: GRID_SIZE,
+        height: GRID_SIZE,
+      });
+      const buffer = this.ctx.createFramebuffer();
+      this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, buffer);
+      this.ctx.framebufferTexture2D(
+        GL.DRAW_FRAMEBUFFER,
+        GL.COLOR_ATTACHMENT0,
+        GL.TEXTURE_2D,
+        tex,
+        0
+      );
+      return { tex, buffer };
+    });
 
     this.skyboxTex = createEmptyCubeTexture(this.ctx, {
       mag: GL.LINEAR,
@@ -949,6 +1107,36 @@ class Renderer {
       .withUniform3f('sun')
       .link();
 
+    this.renderGridProgram = new ProgramBuilder(this.ctx)
+      .withVertexShader(RENDER_VERT_GRID)
+      .withFragmentShader(RENDER_FRAG_GRID)
+      .bindAttribLocation(QUAD_ATTRIB_LOCATION, 'v')
+      .withUniform2f('o')
+      .withUniform2f('s')
+      .withUniform1i('noise')
+      .withUniform1f('terrainHeight')
+      .withUniform1f('terrainHeightAdjust')
+      .withUniform1f('perlinZoom')
+      .withUniform1f('perlinFlatCliffs')
+      .withUniform1f('perlinFlatPeaks')
+      .withUniform1f('perlinGamma')
+      .withUniform1f('perlinLargeZoom')
+      .withUniform1f('perlinLargeHeight')
+      .link();
+
+    this.renderGridUpdateProgram = new ProgramBuilder(this.ctx)
+      .withVertexShader(RENDER_VERT_GRID)
+      .withFragmentShader(RENDER_FRAG_GRID_UPDATE)
+      .bindAttribLocation(QUAD_ATTRIB_LOCATION, 'v')
+      .withUniform1i('noise')
+      .withUniform1i('grid')
+      .withUniform1i('prev')
+      .withUniform1f('waterHeight')
+      .withUniform1f('time')
+      .withUniform1f('dt')
+      .withUniform1f('dampDt')
+      .link();
+
     this.renderDiffuseSkyboxProgram = new ProgramBuilder(this.ctx)
       .withVertexShader(RENDER_VERT_SKYBOX)
       .withFragmentShader(RENDER_FRAG_DIFFUSE_SKYBOX)
@@ -971,6 +1159,9 @@ class Renderer {
       .withUniform1i('noise')
       .withUniform1f('terrainHeight')
       .withUniform1f('terrainHeightAdjust')
+      .withUniform1f('water')
+      .withUniform2f('waterO')
+      .withUniform2f('waterS')
       .withUniform1f('waterHeight')
       .withUniform1f('waterFog')
       .withUniform1f('perlinZoom')
@@ -1015,6 +1206,9 @@ class Renderer {
       .withUniform1i('noise')
       .withUniform1f('terrainHeight')
       .withUniform1f('terrainHeightAdjust')
+      .withUniform1f('water')
+      .withUniform2f('waterO')
+      .withUniform2f('waterS')
       .withUniform1f('waterHeight')
       .withUniform1f('waterFog')
       .withUniform1f('atmosphere')
@@ -1096,13 +1290,17 @@ class Renderer {
     this.renderedConfig = {};
   }
 
+  step(time) {
+    this.time += time;
+  }
+
   render(config) {
     if (config) {
       this.lastSetConfig = config;
     } else {
       config = this.lastSetConfig;
     }
-    if (deepEqual(config, this.renderedConfig)) {
+    if (deepEqual(config, this.renderedConfig) && this.time === this.renderedTime) {
       return;
     }
     if (this.ctx.isContextLost()) {
@@ -1129,6 +1327,51 @@ class Renderer {
       this._renderSky(config.sun);
     }
 
+    // TODO: selective updating
+    // TODO: pan currently rendered parts rather than re-render from scratch
+    if (true) {
+      this.waterO = [Math.round(config.view.focus.x * 10) * 0.1, Math.round(config.view.focus.y * 10) * 0.1];
+      this.waterS = [8.0, 8.0];
+      this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, this.gridBuffer);
+      this.ctx.viewport(0, 0, GRID_SIZE, GRID_SIZE);
+      this.renderGridProgram.use({
+        o: this.waterO,
+        s: this.waterS,
+        noise: { index: 0, texture: this.noiseTex },
+        terrainHeight: config.terrainHeight,
+        perlinZoom: config.zoom,
+        perlinFlatCliffs: config.cliffFlatness,
+        perlinFlatPeaks: config.peakFlatness,
+        perlinGamma: config.flatness,
+        perlinLargeZoom: config.largeZoom,
+        perlinLargeHeight: config.largeHeight,
+        terrainHeightAdjust: config.terrainHeight / (1 + config.largeHeight),
+      });
+      this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
+    }
+
+    if (config.waterHeight !== this.renderedConfig.waterHeight) {
+      this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, this.water[1].buffer);
+      this.ctx.clearColor(0, 0, config.waterHeight, 0);
+      this.ctx.clear(GL.COLOR_BUFFER_BIT);
+      this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, this.water[0].buffer);
+      this.ctx.clear(GL.COLOR_BUFFER_BIT);
+    } else if (this.time !== this.renderedTime) {
+      this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, this.water[1].buffer);
+      this.ctx.viewport(1, 1, GRID_SIZE - 2, GRID_SIZE - 2);
+      this.renderGridUpdateProgram.use({
+        noise: { index: 0, texture: this.noiseTex },
+        grid: { index: 1, texture: this.gridTex },
+        prev: { index: 2, texture: this.water[0].tex },
+        waterHeight: config.waterHeight,
+        time: this.time,
+        dt: this.time - this.renderedTime,
+        dampDt: 1.0,//Math.pow(0.999, this.time - this.renderedTime),
+      });
+      this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
+      this.water = [this.water[1], this.water[0]];
+    }
+
     if (stereoscopic) {
       this._renderEye(config, -eyeSep * 0.5, null, [0, 0, w / 2, h]);
       this._renderEye(config, eyeSep * 0.5, null, [w / 2, 0, w / 2, h]);
@@ -1139,6 +1382,7 @@ class Renderer {
     this.ctx.flush();
 
     this.renderedConfig = config;
+    this.renderedTime = this.time;
   }
 
   _renderEye(config, eyeShift, buffer, viewport) {
@@ -1177,7 +1421,10 @@ class Renderer {
       maxDrawDist,
       sun: xyzTo3f(norm3(config.sun)),
       noise: { index: 0, texture: this.noiseTex },
+      water: { index: 1, texture: this.water[0].tex },
       terrainHeight: config.terrainHeight,
+      waterO: this.waterO,
+      waterS: this.waterS,
       waterHeight: config.waterHeight,
       perlinZoom: config.zoom,
       perlinFlatCliffs: config.cliffFlatness,
@@ -1188,10 +1435,10 @@ class Renderer {
       terrainHeightAdjust: config.terrainHeight / (1 + config.largeHeight),
       rippleZoom: config.ripple.zoom,
       rippleHeight: config.ripple.height,
-      rippleShift: [config.ripple.shift.x, config.ripple.shift.y],
+      rippleShift: [config.ripple.shift.x + this.time * 10.0, config.ripple.shift.y],
       ripple2Zoom: config.ripple2.zoom,
       ripple2Height: config.ripple2.height,
-      ripple2Shift: [config.ripple2.shift.x, config.ripple2.shift.y],
+      ripple2Shift: [config.ripple2.shift.x + this.time, config.ripple2.shift.y],
       waveDist: config.wave.distance,
       waveHeight: config.wave.height,
       waveFreq: config.wave.frequency,
@@ -1221,7 +1468,10 @@ class Renderer {
       lowResDepth: { index: 1, texture: this.lowResDepthTex },
       skybox: { index: 2, glEnum: GL.TEXTURE_CUBE_MAP, texture: this.skyboxTex },
       diffuseSkybox: { index: 3, glEnum: GL.TEXTURE_CUBE_MAP, texture: this.diffuseSkyboxTex },
+      water: { index: 4, texture: this.water[0].tex },
       terrainHeight: config.terrainHeight,
+      waterO: this.waterO,
+      waterS: this.waterS,
       waterHeight: config.waterHeight,
       waterFog: Math.pow(10, -config.waterFog),
       atmosphere,
@@ -1234,10 +1484,10 @@ class Renderer {
       terrainHeightAdjust: config.terrainHeight / (1 + config.largeHeight),
       rippleZoom: config.ripple.zoom,
       rippleHeight: config.ripple.height,
-      rippleShift: [config.ripple.shift.x, config.ripple.shift.y],
+      rippleShift: [config.ripple.shift.x + this.time * 10.0, config.ripple.shift.y],
       ripple2Zoom: config.ripple2.zoom,
       ripple2Height: config.ripple2.height,
-      ripple2Shift: [config.ripple2.shift.x, config.ripple2.shift.y],
+      ripple2Shift: [config.ripple2.shift.x + this.time, config.ripple2.shift.y],
       waveDist: config.wave.distance,
       waveHeight: config.wave.height,
       waveFreq: config.wave.frequency,
