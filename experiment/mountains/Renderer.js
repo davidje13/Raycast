@@ -220,28 +220,28 @@ ${[9, 15].map((count) => `
 vec3 terrainAndGrad${count}(vec2 pos) {
   vec3 sumLarge = vec3(0.0, 0.0, 0.5 * 3.0);
   vec2 p = pos * perlinLargeZoom;
-  mat2 rot = mat2(perlinLargeZoom, 0.0, 0.0, perlinLargeZoom);
+  mat2 dp = mat2(perlinLargeZoom, 0.0, 0.0, perlinLargeZoom);
   for (int i = 0; i < 3; i++) {
     vec3 v = noiseAndGrad(p);
-    sumLarge += vec3(v.xy * rot, v.z);
+    sumLarge += vec3(v.xy * dp, v.z);
     p = p * ROT_1_3 + PERLIN_OFFSET;
-    rot *= ROT_1_3;
+    dp *= ROT_1_3;
   }
 
   vec3 sum = vec3(0.0, 0.0, 0.5);
   float m = PERLIN_NORM;
   p = pos * perlinZoom;
-  rot = mat2(perlinZoom, 0.0, 0.0, perlinZoom);
+  dp = mat2(perlinZoom, 0.0, 0.0, perlinZoom);
   for (int i = 0; i < ${count}; i++) {
     vec3 v = noiseAndGrad(p);
-    sum += vec3(v.xy * rot, v.z) * m;
+    sum += vec3(v.xy * dp, v.z) * m;
     m /= (
       + ${glslFloat(PERLIN_DIVIDE)}
       + dot(sum.xy, sum.xy) * perlinFlatCliffs
       + sum.z * perlinFlatPeaks
     );
     p = p * PERLIN_MATRIX + PERLIN_OFFSET;
-    rot *= PERLIN_MATRIX;
+    dp *= PERLIN_MATRIX;
   }
 
   float gammaAdjustedM1 = pow(sum.z, perlinGamma - 1.0);
@@ -256,8 +256,7 @@ float elevationAt(vec3 pos) {
   return pos.z - terrainAndGrad9(pos.xy).z;
 }
 
-vec4 waterAt(vec2 pos) {
-  vec3 g = terrainAndGrad15(pos);
+vec3 waterAt(vec2 pos) {
   vec2 p = (pos - waterO) * 0.5 / waterS + 0.5;
   vec4 w = texture(water, p);
   float h = w.x + w.z;
@@ -266,51 +265,7 @@ vec4 waterAt(vec2 pos) {
   float hx = w.x + w.z - h;
   w = texture(water, p + vec2(0.0, e * 0.5 / waterS.y));
   float hy = w.x + w.z - h;
-  return vec4(hx * (1.0 / e), hy * (1.0 / e), h - waterHeight, h - g.z);
-  //float depth = waterHeight - g.z;
-  //vec3 ripple = vec3(0.0);
-  //float rippleMult = (1.0 / 3.0) * rippleHeight * linearstep(0.002, 0.02, depth);
-  //if (rippleMult > 0.0) {
-  //  vec2 p = pos * rippleZoom;
-  //  mat2 dp = mat2(rippleZoom, 0.0, 0.0, rippleZoom);
-  //  for (int i = 0; i < 3; i++) {
-  //    vec3 v = noiseAndGrad(p + rippleShift);
-  //    ripple += vec3(v.xy * dp, v.z);
-  //    p = p * ROT_1_3 + PERLIN_OFFSET;
-  //    dp *= ROT_1_3;
-  //  }
-  //  ripple *= rippleMult;
-  //}
-  //vec3 ripple2 = vec3(0.0);
-  //float ripple2Mult = (1.0 / 3.0) * ripple2Height * linearstep(0.01, 0.04, depth);
-  //if (ripple2Mult > 0.0) {
-  //  vec2 p = pos * ripple2Zoom;
-  //  mat2 dp = mat2(ripple2Zoom, 0.0, 0.0, ripple2Zoom);
-  //  for (int i = 0; i < 3; i++) {
-  //    vec3 v = noiseAndGrad(p + ripple2Shift);
-  //    ripple2 += vec3(v.xy * dp, v.z);
-  //    p = p * ROT_1_3 + PERLIN_OFFSET;
-  //    dp *= ROT_1_3;
-  //    //vec3 g = noiseAndGrad(p * 0.5 + ripple2Shift.yx);
-  //    //p.x += sin(p.y) * (g.z + 0.6) * 1.5;
-  //    //dp[0] += (g.z + 0.6) * 1.5 * cos(p.y); // TODO
-  //    ////vec3 v = noiseAndGrad(p + ripple2Shift);
-  //    //vec3 v = vec3(3.14 * sin(p.x * 3.14 + ripple2Shift.x), 0.0, cos(p.x * 3.14 + ripple2Shift.x)) * 0.5;
-  //    //ripple2 += vec3(v.xy * dp, v.z);
-  //    //p = p * ROT_1_3 + PERLIN_OFFSET;
-  //    //dp *= ROT_1_3;
-  //  }
-  //  ripple2 *= ripple2Mult;
-  //}
-  //vec3 wave = vec3(0.0);
-  //float waveMult = waveHeight * linearstep(0.0, 0.02, depth) * linearstep(waveDist, 0.01, depth);
-  //if (waveMult > 0.0) {
-  //  vec3 offset = noiseAndGrad(pos * 0.47) * 10.0;
-  //  float rtDepth = sqrt(depth);
-  //  float v = offset.z + rtDepth * waveFreq + wavePhase;
-  //  wave = vec3((offset.xy - g.xy * waveFreq * 0.5 / rtDepth) * cos(v), sin(v)) * waveMult;
-  //}
-  //return vec4(ripple + ripple2 + wave, depth);
+  return vec3(hx * (1.0 / e), hy * (1.0 / e), h);
 }
 
 float raytraceWater(vec3 o, vec3 ray) {
@@ -318,8 +273,8 @@ float raytraceWater(vec3 o, vec3 ray) {
   float range = 0.05;
   for (int i = 0; i < 1; i++) {
     vec3 p = o + d * ray;
-    vec3 g = waterAt(p.xy).xyz;
-    d += clamp((p.z - waterHeight - g.z) / (dot(g.xy, ray.xy) - ray.z), -range, range);
+    vec3 g = waterAt(p.xy);
+    d += clamp((p.z - g.z) / (dot(g.xy, ray.xy) - ray.z), -range, range);
     range *= 0.75;
   }
   return d;
@@ -417,20 +372,6 @@ void main(void) {
   gl_Position = vec4(v, 0.0, 1.0);
 }`;
 
-const RENDER_FRAG_GRID = `#version 300 es
-precision mediump float;
-
-in vec2 pWorld;
-in vec2 p;
-out vec4 col;
-
-${HELPER_FNS}
-${TERRAIN_FNS}
-
-void main(void) {
-  col = vec4(terrainAndGrad9(pWorld), 0.0);
-}`;
-
 const RENDER_FRAG_GRID_UPDATE = `#version 300 es
 precision mediump float;
 
@@ -439,6 +380,8 @@ uniform sampler2D prev;
 uniform float time;
 uniform float dt;
 uniform float dampDt;
+uniform vec2 dp;
+uniform vec2 shift;
 
 in vec2 pWorld;
 in vec2 p;
@@ -447,17 +390,16 @@ out vec4 next;
 ${HELPER_FNS}
 ${TERRAIN_FNS}
 
-void main(void) {
-  ivec2 c = ivec2(gl_FragCoord);
-  vec4 p1 = texelFetch(prev, c, 0);
-  vec4 t1 = texelFetch(grid, c, 0);
-  float h1 = p1.x + p1.z; // split into 2 components for precision
+const float g = 9.81 * 0.001; // grid squares ~= 1km
 
-  if (p1.w == 0.0) {
+void main(void) {
+  vec2 op = p + shift;
+  if (op.x < 0.0 || op.y < 0.0 || op.x > 1.0 || op.y > 1.0) {
     vec2 n = texture(noise, p * 0.1).xy;
     n += texture(noise, p * ROT_1_3 * 0.2).xy;
     n += texture(noise, p * ROT_1_3 * ROT_1_3 * 0.3).xy;
-    next = vec4((n.x - 0.5) * 0.005, 0.0, p1.z, 1.0);
+    float t = terrainAndGrad9(pWorld).z;
+    next = vec4((n.x - 0.5) * 0.005, 0.0, waterHeight, t);
     return;
   }
 
@@ -475,28 +417,21 @@ void main(void) {
   // *h^2/h cancels to *h
   // *0.5*6 cancels to *3
 
-  const float g = 9.81 * 0.001; // grid squares ~= 1km
-  float f = 0.0;
+  vec4 p1 = texture(prev, op);
+  float h1 = p1.x + p1.z; // split into 2 components for precision
+  float acceleration = 0.0;
+  float energy;
   vec4 p2;
   float h2;
-  ivec2 c2;
   ${[[-1, 0], [0, -1], [1, 0], [0, 1]].map((p) => `
-  c2 = c + ivec2(${glslFloatList(p)});
-  p2 = texelFetch(prev, c2, 0);
+  p2 = texture(prev, op + dp * vec2(${glslFloatList(p)}));
   h2 = p2.x + p2.z;
-  f += (h2 - h1) * max(max(h2, h1) - max(t1.z, texelFetch(grid, c2, 0).z), 0.0);
+  energy = (h2 - h1) * max(max(h2, h1) - max(p1.w, p2.w), 0.0);
+  acceleration += sign(energy) * sqrt(abs(energy) * g * 3.0);
   `).join('')}
 
-  //vec2 n = texelFetch(noise, c, 0).xy;
-  //if (t1.z < waterHeight - 0.01 && n.x > 0.999) {
-  //  float s = n.y + 0.5;
-  //  float t = time * s + n.y * 100.0;
-  //  f += ((cos(t + dt) - cos(t)) * 0.1 - p1.x) * (h1 - t1.z);
-  //}
-
-  float ke = p1.y * dampDt + f * dt;
-  float v = sign(ke) * sqrt(abs(ke) * g * 3.0);
-  next = vec4(max(p1.x + v * dt, t1.z - p1.z - 0.01), ke, p1.z, 1.0);
+  float velocity = p1.y * dampDt + acceleration * dt;
+  next = vec4(max(p1.x + velocity * dt, p1.w - p1.z - 0.01), velocity, p1.zw);
 }`;
 
 const RENDER_FRAG_DEPTH = `#version 300 es
@@ -717,6 +652,18 @@ vec3 terrainColAt(vec2 p, vec3 ray, float shadow) {
     );
   }
 
+  vec3 water = waterAt(p);
+  if (water.z > terrain.z) {
+    norm = normalize(vec3(-water.xy, 1.0));
+    reflectRay = reflect(ray, norm);
+    glossDot1 = max(dot(sun, reflectRay), 0.0);
+    glossDot2 = glossDot1 * glossDot1;
+    glossDot4 = glossDot2 * glossDot2;
+    glossDot8 = glossDot4 * glossDot4;
+    vec3 waterCol = vec3(0.00, 0.01, 0.03) * sunDiskCol * smoothstep(-0.2, 0.4, sun.z);
+    c = mix(waterCol, c, pow(0.1, (water.z - terrain.z) * 10.0)) + reflectCol * (smoothstep(0.7, 0.8, glossDot8) * 0.8 + glossDot4 * 0.2);
+  }
+
   return c;
 }
 
@@ -839,7 +786,7 @@ vec3 render(vec3 ray) {
     shadow = shadowtrace(waterOrigin, sun);
   }
   waterCol *= shadow * 0.8 + 0.2;
-  vec4 water = waterAt((origin + ray * (dWater + dWaterAdjust)).xy);
+  vec3 water = waterAt((origin + ray * (dWater + dWaterAdjust)).xy);
   vec3 waterNorm = normalize(vec3(-water.xy, 1.0));
 
   // water interaction
@@ -916,7 +863,7 @@ vec3 render(vec3 ray) {
   float p55 = p5 * p5;
   float reflectance = ${glslFloat(airWater)} + ${glslFloat(1 - airWater)} * p55 * p55 * p5;
 
-  return skyFog(mix(colRefract, colReflect, clamp(water.w * 40.0, 0.0, reflectance)), ray, dWater);
+  return skyFog(mix(colRefract, colReflect, clamp((water.z - terrainAndGrad15((origin + ray * (dWater + dWaterAdjust)).xy).z) * 40.0, 0.0, reflectance)), ray, dWater);
 }
 
 vec3 convertToDisplayColourSpace(vec3 c) {
@@ -1014,24 +961,6 @@ class Renderer {
       0
     );
 
-    this.gridTex = createEmptyTexture(this.ctx, {
-      wrap: GL.CLAMP,
-      mag: GL.LINEAR,
-      min: GL.LINEAR,
-      format: getFloatBufferFormats(this.ctx).rgba,
-      width: GRID_SIZE,
-      height: GRID_SIZE,
-    });
-    this.gridBuffer = this.ctx.createFramebuffer();
-    this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, this.gridBuffer);
-    this.ctx.framebufferTexture2D(
-      GL.DRAW_FRAMEBUFFER,
-      GL.COLOR_ATTACHMENT0,
-      GL.TEXTURE_2D,
-      this.gridTex,
-      0
-    );
-
     this.water = [0, 1].map(() => {
       const tex = createEmptyTexture(this.ctx, {
         wrap: GL.CLAMP,
@@ -1050,8 +979,12 @@ class Renderer {
         tex,
         0
       );
+      this.ctx.clearColor(0, 0, 0, 0);
+      this.ctx.clear(GL.COLOR_BUFFER_BIT);
       return { tex, buffer };
     });
+
+    this.waterO = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
 
     this.skyboxTex = createEmptyCubeTexture(this.ctx, {
       mag: GL.LINEAR,
@@ -1107,13 +1040,20 @@ class Renderer {
       .withUniform3f('sun')
       .link();
 
-    this.renderGridProgram = new ProgramBuilder(this.ctx)
+    this.renderGridUpdateProgram = new ProgramBuilder(this.ctx)
       .withVertexShader(RENDER_VERT_GRID)
-      .withFragmentShader(RENDER_FRAG_GRID)
+      .withFragmentShader(RENDER_FRAG_GRID_UPDATE)
       .bindAttribLocation(QUAD_ATTRIB_LOCATION, 'v')
       .withUniform2f('o')
       .withUniform2f('s')
       .withUniform1i('noise')
+      .withUniform1i('prev')
+      .withUniform1f('waterHeight')
+      .withUniform1f('time')
+      .withUniform1f('dt')
+      .withUniform1f('dampDt')
+      .withUniform2f('dp')
+      .withUniform2f('shift')
       .withUniform1f('terrainHeight')
       .withUniform1f('terrainHeightAdjust')
       .withUniform1f('perlinZoom')
@@ -1122,19 +1062,6 @@ class Renderer {
       .withUniform1f('perlinGamma')
       .withUniform1f('perlinLargeZoom')
       .withUniform1f('perlinLargeHeight')
-      .link();
-
-    this.renderGridUpdateProgram = new ProgramBuilder(this.ctx)
-      .withVertexShader(RENDER_VERT_GRID)
-      .withFragmentShader(RENDER_FRAG_GRID_UPDATE)
-      .bindAttribLocation(QUAD_ATTRIB_LOCATION, 'v')
-      .withUniform1i('noise')
-      .withUniform1i('grid')
-      .withUniform1i('prev')
-      .withUniform1f('waterHeight')
-      .withUniform1f('time')
-      .withUniform1f('dt')
-      .withUniform1f('dampDt')
       .link();
 
     this.renderDiffuseSkyboxProgram = new ProgramBuilder(this.ctx)
@@ -1327,17 +1254,28 @@ class Renderer {
       this._renderSky(config.sun);
     }
 
-    // TODO: selective updating
-    // TODO: pan currently rendered parts rather than re-render from scratch
-    if (true) {
+    if (config.waterHeight !== this.renderedConfig.waterHeight) {
+      this.renderedTime = this.time - 0.01;
+      this.waterO = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
+    }
+    if (this.time !== this.renderedTime) {
+      const lastO = [...this.waterO];
       this.waterO = [Math.round(config.view.focus.x * 10) * 0.1, Math.round(config.view.focus.y * 10) * 0.1];
       this.waterS = [8.0, 8.0];
-      this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, this.gridBuffer);
+
+      this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, this.water[1].buffer);
       this.ctx.viewport(0, 0, GRID_SIZE, GRID_SIZE);
-      this.renderGridProgram.use({
+      this.renderGridUpdateProgram.use({
+        noise: { index: 0, texture: this.noiseTex },
+        prev: { index: 1, texture: this.water[0].tex },
         o: this.waterO,
         s: this.waterS,
-        noise: { index: 0, texture: this.noiseTex },
+        waterHeight: config.waterHeight,
+        shift: (lastO[0] === this.waterO[0] && lastO[1] === this.waterO[1]) ? [0, 0] : [1, 0],
+        time: this.time,
+        dt: this.time - this.renderedTime,
+        dampDt: 1.0,//Math.pow(0.999, this.time - this.renderedTime),
+        dp: [1 / GRID_SIZE, 1 / GRID_SIZE],
         terrainHeight: config.terrainHeight,
         perlinZoom: config.zoom,
         perlinFlatCliffs: config.cliffFlatness,
@@ -1346,27 +1284,6 @@ class Renderer {
         perlinLargeZoom: config.largeZoom,
         perlinLargeHeight: config.largeHeight,
         terrainHeightAdjust: config.terrainHeight / (1 + config.largeHeight),
-      });
-      this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
-    }
-
-    if (config.waterHeight !== this.renderedConfig.waterHeight) {
-      this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, this.water[1].buffer);
-      this.ctx.clearColor(0, 0, config.waterHeight, 0);
-      this.ctx.clear(GL.COLOR_BUFFER_BIT);
-      this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, this.water[0].buffer);
-      this.ctx.clear(GL.COLOR_BUFFER_BIT);
-    } else if (this.time !== this.renderedTime) {
-      this.ctx.bindFramebuffer(GL.DRAW_FRAMEBUFFER, this.water[1].buffer);
-      this.ctx.viewport(1, 1, GRID_SIZE - 2, GRID_SIZE - 2);
-      this.renderGridUpdateProgram.use({
-        noise: { index: 0, texture: this.noiseTex },
-        grid: { index: 1, texture: this.gridTex },
-        prev: { index: 2, texture: this.water[0].tex },
-        waterHeight: config.waterHeight,
-        time: this.time,
-        dt: this.time - this.renderedTime,
-        dampDt: 1.0,//Math.pow(0.999, this.time - this.renderedTime),
       });
       this.ctx.drawArrays(GL.TRIANGLE_STRIP, 0, 4);
       this.water = [this.water[1], this.water[0]];
